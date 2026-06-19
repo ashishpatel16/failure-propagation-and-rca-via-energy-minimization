@@ -1,0 +1,3 @@
+Premain-Class: com.tracer.TracerAgent
+Can-Redefine-Classes: true
+Can-Retransform-Classes: true
