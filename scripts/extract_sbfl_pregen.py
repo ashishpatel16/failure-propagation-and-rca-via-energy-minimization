@@ -21,14 +21,14 @@ PROJECTS = {
     # "Cli": "org.apache.commons.cli",
     # "Closure": "com.google.javascript",
     # "Codec": "org.apache.commons.codec",
-    "Collections": "org.apache.commons.collections",
+    # "Collections": "org.apache.commons.collections",
     # "Compress": "org.apache.commons.compress",
     # "Csv": "org.apache.commons.csv",
     # "Gson": "com.google.gson",
     # "JacksonCore": "com.fasterxml.jackson.core",
     # "JacksonDatabind": "com.fasterxml.jackson.databind",
     # "JacksonXml": "com.fasterxml.jackson.dataformat.xml",
-    # "Jsoup": "org.jsoup",
+    "Jsoup": "org.jsoup",
     # "JxPath": "org.apache.commons.jxpath",
     # "Lang": "org.apache.commons.lang",
     # "Math": "org.apache.commons.math",
@@ -38,7 +38,7 @@ PROJECTS = {
 
 TARGET_PROJECT = "Lang"
 TARGET_BUG = "1"
-RUN_ALL = False
+RUN_ALL = True
 
 def main() -> None:
     if not RUN_ALL and not TARGET_PROJECT:

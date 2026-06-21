@@ -2,6 +2,11 @@ import json
 import networkx as nx
 import pandas as pd
 import re
+from enum import Enum
+
+class Granularity(Enum):
+    SERVICE = "service"
+    OPERATION = "operation"
 
 def read_call_graph(filepath: str) -> nx.DiGraph:
     """
@@ -24,6 +29,11 @@ def read_call_graph(filepath: str) -> nx.DiGraph:
             continue
         weight = edge["frequency"]
         G.add_edge(caller, callee, weight=weight)
+        
+    # Remove isolated nodes (nodes with 0 incoming and 0 outgoing edges)
+    isolates = list(nx.isolates(G))
+    if isolates:
+        G.remove_nodes_from(isolates)
         
     return G
 
@@ -77,3 +87,67 @@ def compute_method_tarantula(coverage_csv: str) -> dict[str, float]:
         tarantula_scores[method] = float(tarantula)
         
     return tarantula_scores
+
+class RCAEvalTraceParser:
+    """
+    Parses trace data from the RCAEval benchmark and reconstructs a NetworkX DiGraph.
+    """
+    def __init__(self, trace_csv_path: str) -> None:
+        self.trace_csv_path = trace_csv_path
+
+    def build_call_graph(self, granularity: Granularity) -> nx.DiGraph:
+        """
+        Builds a call graph from the traces.
+        """
+        df = pd.read_csv(self.trace_csv_path)
+        
+        # Determine node names
+        if granularity == Granularity.OPERATION:
+            if "methodName" in df.columns:
+                df["methodName"] = df["methodName"].fillna(df["operationName"])
+                df["node_name"] = df["serviceName"] + "_" + df["methodName"]
+            else:
+                df["node_name"] = df["serviceName"] + "_" + df["operationName"]
+        elif granularity == Granularity.SERVICE:
+            df["node_name"] = df["serviceName"]
+        else:
+            raise ValueError(f"Unknown granularity: {granularity}")
+
+        op_dict: dict[str, str] = {}  # spanID -> node_name
+        child_dict: dict[str, list[str]] = {}  # parentSpanID -> list of child spanIDs
+        
+        for _, row in df.iterrows():
+            span_id = row["spanID"]
+            parent_span_id = row.get("parentSpanID", None)
+            node_name = row["node_name"]
+            
+            op_dict[span_id] = node_name
+            
+            if pd.notna(parent_span_id) and parent_span_id != "":
+                if parent_span_id not in child_dict:
+                    child_dict[parent_span_id] = []
+                child_dict[parent_span_id].append(span_id)
+                
+        G = nx.DiGraph()
+        
+        # Build edges based on parent-child relationships
+        edge_frequencies: dict[tuple[str, str], int] = {}
+        for parent_id, children in child_dict.items():
+            if parent_id in op_dict:
+                parent_node = op_dict[parent_id]
+                for child_id in children:
+                    if child_id in op_dict:
+                        child_node = op_dict[child_id]
+                        # Track frequencies for all distinct spans
+                        edge = (parent_node, child_node)
+                        edge_frequencies[edge] = edge_frequencies.get(edge, 0) + 1
+                            
+        for (u, v), freq in edge_frequencies.items():
+            G.add_edge(u, v, weight=freq)
+            
+        # Ensure all seen nodes are added, even if they have no inter-service edges
+        for node in op_dict.values():
+            if not G.has_node(node):
+                G.add_node(node)
+                
+        return G

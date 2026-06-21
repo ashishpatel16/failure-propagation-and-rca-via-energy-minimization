@@ -96,3 +96,171 @@ def plot_energy_vs_probability_lambdas(lambdas, energy_map, temperature: float):
     
     plt.tight_layout()
     plt.show()
+
+import networkx as nx
+
+def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_type: str = "hierarchical", buggy_methods: list = None):
+    """
+    Plots a 3D interactive energy landscape using Plotly.
+    X and Y axes are the Kamada-Kawai layout (atomic lattice).
+    Z axis is the individual energy contribution of each node.
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("Plotly is not installed. Run: pip install plotly")
+        return
+        
+    from visualization.graph_plots import get_hierarchical_pos
+    if layout_type == "kamada_kawai":
+        import numpy as np
+        pos = nx.kamada_kawai_layout(G)
+        for node in pos:
+            pos[node] += np.random.uniform(-0.15, 0.15, 2)
+    else:
+        pos = get_hierarchical_pos(G)
+    
+    # Calculate energy per node
+    node_energies = {}
+    for node in G.nodes():
+        l_i = optimal_labeling.get(node, 0)
+        
+        # Unary cost
+        if l_i == 0:
+            unary_cost = cut_algo.D0.get(node, 0)
+        else:
+            unary_cost = cut_algo.D1.get(node, 0)
+            
+        # 2. Pairwise cost (Edge Tension)
+        pairwise_cost = 0.0
+        
+        # Use a set of neighbors to avoid double-counting bidirectional edges
+        unique_neighbors = set(list(G.successors(node)) + list(G.predecessors(node)))
+        
+        for neighbor in unique_neighbors:
+            l_j = optimal_labeling.get(neighbor, 0)
+            if l_i != l_j:
+                edge_set = frozenset([node, neighbor])
+                if edge_set in cut_algo.C_ij:
+                    # Distribute 50% of the cut penalty to this node
+                    pairwise_cost += 0.5 * cut_algo.lambd * cut_algo.C_ij[edge_set]
+                    
+        # Total Energy = Unary + 50% of incident cuts
+        node_energies[node] = unary_cost + pairwise_cost
+        
+    x_nodes = []
+    y_nodes = []
+    z_nodes = []
+    hover_texts = []
+    colors = []
+    sizes = []
+    line_colors = []
+    line_widths = []
+    
+    max_energy = max(node_energies.values()) if node_energies else 1.0
+    
+    for node in G.nodes():
+        x, y = pos[node]
+        z = node_energies[node]
+        x_nodes.append(x)
+        y_nodes.append(y)
+        z_nodes.append(z)
+        
+        is_buggy_pred = optimal_labeling.get(node, 0) == 1
+        
+        # Match node name (ignoring arguments) against buggy methods list
+        node_base_name = node.split('(')[0] if isinstance(node, str) else str(node)
+        is_actual_bug = buggy_methods is not None and node_base_name in buggy_methods
+        
+        if is_actual_bug:
+            label_text = "Actual Bug"
+            color = "#ff0000" # Pure bright red
+            line_color = "#000000" # Black outline
+            line_width = 3.0
+            size = 18 + 25 * (z / max_energy) if max_energy > 0 else 22
+        elif is_buggy_pred:
+            label_text = "Buggy (Predicted)"
+            color = "#e74c3c" # Normal red
+            line_color = "white"
+            line_width = 1.5
+            size = 10 + 25 * (z / max_energy) if max_energy > 0 else 15
+        else:
+            label_text = "Normal"
+            color = "#3498db" # Blue
+            line_color = "white"
+            line_width = 1.5
+            size = 10 + 25 * (z / max_energy) if max_energy > 0 else 15
+        
+        # Format the method signature to be readable
+        short_name = node.split('#')[-1] if isinstance(node, str) else str(node)
+        
+        hover_texts.append(f"<b>{short_name}</b><br>Label: {label_text}<br>Energy: {z:.2f}")
+        colors.append(color)
+        line_colors.append(line_color)
+        line_widths.append(line_width)
+        sizes.append(size)
+
+    # Node trace
+    node_trace = go.Scatter3d(
+        x=x_nodes, y=y_nodes, z=z_nodes,
+        mode='markers',
+        marker=dict(
+            size=sizes,
+            color=colors,
+            line=dict(width=1.5, color=line_colors),
+            opacity=0.95
+        ),
+        text=hover_texts,
+        hoverinfo='text',
+        name='Methods (Atoms)'
+    )
+    
+    # Edge trace
+    edge_x = []
+    edge_y = []
+    edge_z = []
+    
+    for u, v in G.edges():
+        if u in pos and v in pos:
+            x0, y0 = pos[u]
+            x1, y1 = pos[v]
+            z0 = node_energies[u]
+            z1 = node_energies[v]
+            
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+            edge_z.extend([z0, z1, None])
+            
+    edge_trace = go.Scatter3d(
+        x=edge_x, y=edge_y, z=edge_z,
+        mode='lines',
+        line=dict(color='rgba(100, 100, 100, 0.25)', width=1.5),
+        hoverinfo='none',
+        name='Call Graph Edges'
+    )
+    
+    fig = go.Figure(data=[edge_trace, node_trace])
+    
+    fig.update_layout(
+        title="3D Call Graph Energy Landscape",
+        scene=dict(
+            xaxis_title="Layout X",
+            yaxis_title="Layout Y",
+            zaxis_title="Energy E_i",
+            xaxis=dict(showbackground=True, backgroundcolor='#e8e8e8', showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showbackground=True, backgroundcolor='#e8e8e8', showgrid=False, zeroline=False, showticklabels=False),
+            zaxis=dict(showbackground=True, backgroundcolor='#e8e8e8', showgrid=True, gridcolor='white'),
+            aspectratio=dict(x=1.2, y=1.2, z=0.8) # Prevent auto-squishing by forcing a comfortable bounding box
+        ),
+        margin=dict(l=0, r=0, b=0, t=40),
+        plot_bgcolor='#f5f5f5',
+        paper_bgcolor='#f5f5f5'
+    )
+    
+    fig.write_html(str(output_path))
+    png_path = str(output_path).replace('.html', '.png')
+    try:
+        fig.write_image(png_path)
+        print(f"Saved 3D energy landscape to {output_path} and {png_path}")
+    except ValueError as e:
+        print(f"Saved 3D energy landscape to {output_path} (PNG export failed: install kaleido)")

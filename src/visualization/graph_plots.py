@@ -53,24 +53,32 @@ def get_hierarchical_pos(G):
     max_layer = max(layers.keys()) if layers else 0
     
     for l, nodes in layers.items():
-        x = (l / max(1, max_layer)) * 6 - 3  # Scale x from -3 to 3
-        y_step = 4.0 / max(1, len(nodes))
+        x_spacing = 3.0
+        y_spacing = 1.0
+        x = l * x_spacing
+        y_start = (len(nodes) - 1) * y_spacing / 2.0
         for i, node in enumerate(nodes):
-            y = 2.0 - (i + 0.5) * y_step
+            y = y_start - i * y_spacing
             jitter = 0.0
             if len(nodes) > 1:
                 jitter = (i % 3 - 1) * 0.5
             pos[node] = np.array([x + jitter, y])
             
     # Position SOURCE and TERMINAL
-    if "SOURCE" in G.nodes:
-        pos["SOURCE"] = np.array([0, 4.0])  # Extreme top
-    if "TERMINAL" in G.nodes:
-        pos["TERMINAL"] = np.array([0, -4.0]) # Extreme bottom
+    if "SOURCE" in G.nodes or "TERMINAL" in G.nodes:
+        all_y = [p[1] for p in pos.values()] if pos else [0]
+        max_y = max(all_y) if all_y else 0
+        min_y = min(all_y) if all_y else 0
+        mid_x = (max_layer * 3.0) / 2.0 if max_layer else 0
         
+        if "SOURCE" in G.nodes:
+            pos["SOURCE"] = np.array([mid_x, max_y + 2.0])
+        if "TERMINAL" in G.nodes:
+            pos["TERMINAL"] = np.array([mid_x, min_y - 2.0])
+            
     return pos
 
-def visualize_graph(G: nx.DiGraph, title: str, save_prefix: Optional[str]) -> None:
+def visualize_graph(G: nx.DiGraph, title: str, save_prefix: Optional[str] = None, layout_type: str = "hierarchical", buggy_methods: Optional[list] = None) -> None:
     """
     Plots a simple NetworkX graph showing topology and nodes.
     If save_prefix is provided, saves as .png and .svg instead of showing interactively.
@@ -81,33 +89,62 @@ def visualize_graph(G: nx.DiGraph, title: str, save_prefix: Optional[str]) -> No
         raise ValueError("title must be a string")
         
     setup_academic_plot_params()
-    fig, ax = plt.subplots(figsize=(12, 8), facecolor="white")
+    fig_width = max(16, len(G.nodes) // 5)
+    fig_height = max(12, len(G.nodes) // 5)
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), facecolor="white")
     
-    pos = get_hierarchical_pos(G)
+    if layout_type == "kamada_kawai":
+        pos = nx.kamada_kawai_layout(G)
+        for node in pos:
+            pos[node] += np.random.uniform(-0.15, 0.15, 2)
+    else:
+        pos = get_hierarchical_pos(G)
     
     terminal_nodes = [n for n in G.nodes if n in ["SOURCE", "TERMINAL"]]
     normal_nodes = [n for n in G.nodes if n not in ["SOURCE", "TERMINAL"]]
+    
+    buggy_nodes = []
+    if buggy_methods:
+        buggy_set = set(buggy_methods)
+        new_normal = []
+        for n in normal_nodes:
+            node_base = n.split('(')[0] if isinstance(n, str) else str(n)
+            if node_base in buggy_set:
+                buggy_nodes.append(n)
+            else:
+                new_normal.append(n)
+        normal_nodes = new_normal
     
     if normal_nodes:
         nx.draw_networkx_nodes(
             G, pos, nodelist=normal_nodes, 
             node_color=COLORS["normal"], node_shape='o', 
-            node_size=1000, edgecolors='#333333', linewidths=1.0, ax=ax
+            node_size=300, edgecolors='#333333', linewidths=1.0, ax=ax
+        )
+        
+    if buggy_nodes:
+        nx.draw_networkx_nodes(
+            G, pos, nodelist=buggy_nodes, 
+            node_color="#ff9999", node_shape='o', 
+            node_size=350, edgecolors='#cc0000', linewidths=2.0, ax=ax
         )
         
     if terminal_nodes:
         nx.draw_networkx_nodes(
             G, pos, nodelist=terminal_nodes, 
             node_color=COLORS["terminal"], node_shape='o', 
-            node_size=1200, edgecolors='#444444', linewidths=1.5, ax=ax
+            node_size=500, edgecolors='#444444', linewidths=1.5, ax=ax
         )
     
     labels = {}
     for n in G.nodes():
-        name = str(n).split('#')[-1]
         if n in ["SOURCE", "TERMINAL"]:
-            labels[n] = f"{name}"
+            labels[n] = str(n)
         else:
+            name = str(n).split('#')[-1]
+            name = name.split('(')[0]
+            name = name.split('.')[-1]
+            
             D0 = G.nodes[n].get('D0')
             D1 = G.nodes[n].get('D1')
             if D1 == float('inf'):
@@ -123,18 +160,17 @@ def visualize_graph(G: nx.DiGraph, title: str, save_prefix: Optional[str]) -> No
     normal_edges = [(u, v) for u, v in G.edges() if u not in ["SOURCE", "TERMINAL"] and v not in ["SOURCE", "TERMINAL"]]
     
     if normal_edges:
-        edge_weights = [max(0.5, float(G[u][v]['weight']) * 0.2) if G[u][v]['weight'] > 0 else 1.0 for u, v in normal_edges]
         nx.draw_networkx_edges(
             G, pos, edgelist=normal_edges, style='solid', edge_color=COLORS["edge"], 
-            width=edge_weights, arrowstyle='-|>', arrowsize=15, 
-            node_size=1000, ax=ax
+            width=1.0, arrowstyle='-|>', arrowsize=10, 
+            node_size=300, ax=ax, connectionstyle="arc3,rad=0.1"
         )
         
     if terminal_edges:
         nx.draw_networkx_edges(
             G, pos, edgelist=terminal_edges, style='dashed', edge_color=COLORS["edge"], 
-            width=1.0, arrowstyle='-|>', arrowsize=15, 
-            node_size=1000, ax=ax, alpha=0.6
+            width=1.0, arrowstyle='-|>', arrowsize=10, 
+            node_size=300, ax=ax, alpha=0.6, connectionstyle="arc3,rad=0.1"
         )
     
     edge_labels = {}
@@ -160,7 +196,7 @@ def visualize_graph(G: nx.DiGraph, title: str, save_prefix: Optional[str]) -> No
     else:
         plt.show()
 
-def plot_json_graph(json_path: str, title: str, save_prefix: Optional[str]) -> None:
+def plot_json_graph(json_path: str, title: str, save_prefix: Optional[str] = None, buggy_methods: Optional[list] = None) -> None:
     """Reads a JSON call graph and visualizes it."""
     if not isinstance(json_path, str) or not isinstance(title, str):
         raise ValueError("json_path and title must be strings")
@@ -181,4 +217,6 @@ def plot_json_graph(json_path: str, title: str, save_prefix: Optional[str]) -> N
                 continue
             G.add_edge(caller, callee, weight=e['frequency'])
             
-    visualize_graph(G, title, save_prefix=save_prefix)
+    visualize_graph(G, title, save_prefix=save_prefix, layout_type="hierarchical", buggy_methods=buggy_methods)
+    if save_prefix:
+        visualize_graph(G, f"{title} (Kamada-Kawai)", save_prefix=f"{save_prefix}_kamada", layout_type="kamada_kawai", buggy_methods=buggy_methods)
