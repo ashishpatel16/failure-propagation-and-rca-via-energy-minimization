@@ -28,12 +28,12 @@ PROJECTS = {
     # "JacksonCore": "com.fasterxml.jackson.core",
     # "JacksonDatabind": "com.fasterxml.jackson.databind",
     # "JacksonXml": "com.fasterxml.jackson.dataformat.xml",
-    "Jsoup": "org.jsoup",
+    # "Jsoup": "org.jsoup",
     # "JxPath": "org.apache.commons.jxpath",
     # "Lang": "org.apache.commons.lang",
     # "Math": "org.apache.commons.math",
-    # "Mockito": "org.mockito",
-    # "Time": "org.joda.time"
+    "Mockito": "org.mockito",
+    "Time": "org.joda.time"
 }
 
 TARGET_PROJECT = "Lang"
@@ -66,6 +66,9 @@ def main() -> None:
         for proj, prefix in PROJECTS.items():
             try:
                 bugs = extractor.d4j_manager.get_bug_ids(proj)
+                # if proj == "Jsoup":
+                #     bugs = ['51', '52', '53', '54', '55', '56', '57', '58', '59', '60', '61', '62', '63', '64', '65', '66', '67', '68', '69', '70', '71', '72', '73', '74', '75', '76', '77', '78', '79', '80', '81', '82', '83', '84', '85', '86', '87', '88', '89', '90', '91', '92', '93']
+                # print(bugs, proj)
                 for b in bugs:
                     targets.append((proj, b, prefix))
             except Exception as e:

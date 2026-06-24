@@ -19,7 +19,7 @@ from visualization.energy_plots import plot_3d_energy_landscape
 
 
 TARGETS: list[tuple[str, str, str]] = [
-    ("Lang", "6", "org.apache.commons"),
+    # ("Lang", "6", "org.apache.commons"),
     ("Lang", "1", "org.apache.commons"),
     ("Lang", "3", "org.apache.commons"),
     ("Lang", "5", "org.apache.commons"),

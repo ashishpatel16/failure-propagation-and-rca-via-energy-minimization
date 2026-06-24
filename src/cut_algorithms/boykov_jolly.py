@@ -61,8 +61,8 @@ class BoykovJollyCut:
                 continue
             seen_edges.add(edge_set)
             
-            freq_uv = self.original_graph[u][v].get('weight', 0)
-            freq_vu = self.original_graph[v][u].get('weight', 0) if self.original_graph.has_edge(v, u) else 0
+            freq_uv = self.original_graph[u][v]['weight']
+            freq_vu = self.original_graph[v][u]['weight'] if self.original_graph.has_edge(v, u) else 0
             
             # log(1 + freq) formulation
             self.C_ij[edge_set] = math.log1p(freq_uv + freq_vu)
@@ -79,6 +79,9 @@ class BoykovJollyCut:
             A NetworkX DiGraph formatted for max_flow computations.
         """
         G_cut = nx.DiGraph()
+        
+        G_cut.add_node("SOURCE")
+        G_cut.add_node("TERMINAL")
         
         for node in self.nodes:
             cap_S_to_node = self.D0[node]

@@ -224,3 +224,6 @@ Rules.md
 # Un-ignore tracer_agent lib to ensure javassist.jar is tracked and pushed to the server
 !src/graph_generation/sbfl/tracer_agent/lib/
 !src/graph_generation/sbfl/tracer_agent/lib/**
+
+defects4j
+eval_lambd_1/
