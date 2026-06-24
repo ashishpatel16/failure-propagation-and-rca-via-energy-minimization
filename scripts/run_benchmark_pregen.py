@@ -237,11 +237,17 @@ def evaluate(project, bug_id, lambd=1.0):
     G = json_to_digraph(extraction_res.graph_json)
     nodes = list(G.nodes())
 
-    # Assert that the buggy nodes exist in the call graph G
+    # Ground truth is NOT needed to compute rankings (it's only used for the
+    # downstream comparison). Warn on mismatches but never abort, so every
+    # instance still gets ranked and exported.
     graph_nodes_no_args = {n.split('(')[0] for n in nodes}
     for buggy_method in extraction_res.buggy_methods:
         bm = buggy_method.replace('$', '.').split('(')[0]
-        assert bm in graph_nodes_no_args, f"Buggy method {buggy_method} not found in the call graph G!"
+        if bm not in graph_nodes_no_args:
+            logging.warning(
+                f"[{project}:{bug_id}] buggy method {buggy_method} not in call graph "
+                f"(ground truth only; rankings still exported)"
+            )
 
     data_dir = ROOT_DIR / "data" / "defects4j" / f"{project}_{bug_id}"
     coverage_df = pd.read_csv(data_dir / "coverage.csv")
@@ -344,44 +350,49 @@ def _run_instance(task):
 if __name__ == "__main__":
     from multiprocessing import Pool
     from tqdm import tqdm
+    eval_parent = "first_10"
 
-    output_dir = "eval_lambd_1"
-    os.makedirs(output_dir, exist_ok=True)
-    lambd_value = 1.0
-    max_workers = 4
+    lambdas_to_ablate = [0.0, 1.0, 100.0]
+    for lambd_value in lambdas_to_ablate:
+        output_dir = f"{eval_parent}/eval_lambd_{lambd_value}"
+        os.makedirs(output_dir, exist_ok=True)
+        lambd_value = lambd_value
+        max_workers = 4
 
-    base_path = ROOT_DIR / "data" / "defects4j"
-    bugs = sorted([item for item in base_path.iterdir() if item.is_dir()])
+        print(f"Starting benchmark with lambda = {lambd_value}")
 
-    single_bug_instances = get_single_bugs(bugs)[:10]
-    print(single_bug_instances)
+        base_path = ROOT_DIR / "data" / "defects4j"
+        bugs = sorted([item for item in base_path.iterdir() if item.is_dir()])
 
-    # Flatten to one task per instance; the project grouping was only cosmetic.
-    tasks = [
-        (row["project"], int(row["bug_id"]), lambd_value, output_dir)
-        for _, row in single_bug_instances.iterrows()
-    ]
+        single_bug_instances = get_single_bugs(bugs)[:10]
+        print(single_bug_instances)
 
-    print(f"Starting benchmark: {len(tasks)} instances on {max_workers} workers...\n")
-    print("Press Ctrl-C to stop all workers.\n")
+        # Flatten to one task per instance; the project grouping was only cosmetic.
+        tasks = [
+            (row["project"], int(row["bug_id"]), lambd_value, output_dir)
+            for _, row in single_bug_instances.iterrows()
+        ]
 
-    failed_runs = []
-    pool = Pool(processes=max_workers, initializer=_init_worker)
-    try:
-        for res in tqdm(pool.imap_unordered(_run_instance, tasks),
-                        total=len(tasks), desc="Benchmark"):
-            if res["status"] == "failed":
-                failed_runs.append(res)
-        pool.close()
-    except KeyboardInterrupt:
-        print("\nInterrupted — terminating workers...")
-        pool.terminate()
-    finally:
-        pool.join()
+        print(f"Starting benchmark: {len(tasks)} instances on {max_workers} workers...\n")
+        print("Press Ctrl-C to stop all workers.\n")
 
-    # Final summary
-    print("Benchmark stopped")
-    if failed_runs:
-        print(f"Encountered {len(failed_runs)} failed instances:")
-        for r in failed_runs:
-            print(f"  {r['project']}_{r['bug_id']}: {r['error']}")
+        failed_runs = []
+        pool = Pool(processes=max_workers, initializer=_init_worker)
+        try:
+            for res in tqdm(pool.imap_unordered(_run_instance, tasks),
+                            total=len(tasks), desc="Benchmark"):
+                if res["status"] == "failed":
+                    failed_runs.append(res)
+            pool.close()
+        except KeyboardInterrupt:
+            print("\nInterrupted — terminating workers...")
+            pool.terminate()
+        finally:
+            pool.join()
+
+        # Final summary
+        print("Benchmark stopped for lambda = {lambd_value}")
+        if failed_runs:
+            print(f"Encountered {len(failed_runs)} failed instances:")
+            for r in failed_runs:
+                print(f"  {r['project']}_{r['bug_id']}: {r['error']}")
