@@ -7,8 +7,8 @@ import networkx as nx
 from typing import Tuple
 import json
 import math
-# Reduce logging noise
-logging.getLogger().setLevel(logging.WARNING)
+# Configure logging to see output from processes
+logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 ROOT_DIR = Path(os.getcwd())
 if ROOT_DIR.name == "notebooks":
@@ -323,7 +323,7 @@ def get_single_bugs(bugs):
     df_active['bug_id'] = pd.to_numeric(df_active['bug_id'])
     single_bug_instances = df_active[df_active['num_buggy_nodes']==1]
 
-    return single_bug_instances
+    return single_bug_instances.sort_values(by="total_nodes")
 
 def _init_worker():
     """Make workers ignore SIGINT so Ctrl-C is handled only by the parent,
@@ -337,34 +337,39 @@ def _run_instance(task):
     project, bug_id, lambd, output_dir = task
     filepath = os.path.join(output_dir, f"{project}_{bug_id}_{lambd}.csv")
 
+    logging.info(f"[{project}:{bug_id}] Starting evaluation...")
+
     if os.path.exists(filepath):
+        logging.info(f"[{project}:{bug_id}] Skipped (already exists)")
         return {"project": project, "bug_id": bug_id, "status": "skipped"}
 
     try:
         result_df = evaluate(project, bug_id, lambd=lambd)
         result_df.to_csv(filepath, index=False)
+        logging.info(f"[{project}:{bug_id}] Completed successfully")
         return {"project": project, "bug_id": bug_id, "status": "ok"}
     except Exception as e:
+        logging.error(f"[{project}:{bug_id}] Failed: {e}")
         return {"project": project, "bug_id": bug_id, "status": "failed", "error": str(e)}
 
 if __name__ == "__main__":
     from multiprocessing import Pool
     from tqdm import tqdm
-    eval_parent = "first_10"
+    eval_parent = "evals_lambd1"
 
-    lambdas_to_ablate = [0.0, 1.0, 100.0]
+    lambdas_to_ablate = [1.0]
     for lambd_value in lambdas_to_ablate:
         output_dir = f"{eval_parent}/eval_lambd_{lambd_value}"
         os.makedirs(output_dir, exist_ok=True)
         lambd_value = lambd_value
-        max_workers = 4
+        max_workers = 3
 
         print(f"Starting benchmark with lambda = {lambd_value}")
 
         base_path = ROOT_DIR / "data" / "defects4j"
         bugs = sorted([item for item in base_path.iterdir() if item.is_dir()])
 
-        single_bug_instances = get_single_bugs(bugs)[:10]
+        single_bug_instances = get_single_bugs(bugs)
         print(single_bug_instances)
 
         # Flatten to one task per instance; the project grouping was only cosmetic.
