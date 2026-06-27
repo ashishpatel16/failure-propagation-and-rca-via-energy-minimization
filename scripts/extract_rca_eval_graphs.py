@@ -1,75 +1,117 @@
-import os
-import sys
+"""Render hierarchical SVGs for extracted RCA-Eval runtime call graphs."""
+
+from __future__ import annotations
+
+import json
 import logging
-import argparse
+import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("RCAEvalExtractor")
-
-ROOT_DIR = Path(os.getcwd())
-sys.path.insert(0, str(ROOT_DIR / "src"))
-
-from cut_algorithms.data_parsers import RCAEvalTraceParser, Granularity
-from graph_generation.sbfl.call_graph_parser import CallGraph, CallEdge, GraphMetadata, save_to_json
-from visualization.graph_plots import plot_json_graph
 import networkx as nx
 
-DATA_DIR: str = "data"
-GRANULARITY: Granularity = Granularity.OPERATION
-VISUALIZE: bool = True
 
-def convert_nx_to_callgraph(G: nx.DiGraph) -> CallGraph:
-    """Converts an nx.DiGraph back into the standardized CallGraph dataclass for saving."""
-    edges: list[CallEdge] = []
-    for u, v, data in G.edges(data=True):
-        freq = data.get("weight", 1)
-        edges.append(CallEdge(caller=u, callee=v, frequency=freq))
-        
-    nodes = list(G.nodes())
-    metadata = GraphMetadata(total_nodes=len(nodes), total_edges=len(edges))
-    return CallGraph(metadata=metadata, nodes=nodes, edges=edges)
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from visualization.graph_plots import visualize_graph
+
+
+class Suite(Enum):
+    RE3 = "RE3"
+
+
+@dataclass(frozen=True)
+class GraphPlot:
+    graph_path: Path
+    output_prefix: Path
+    title: str
+
+
+LOGGER = logging.getLogger("rca_eval_graph_renderer")
+DATA_DIR: Path = ROOT_DIR / "data"
+SELECTED_SUITES: tuple[Suite, ...] = (Suite.RE3,)
+RUNTIME_GRAPH_FILENAME = "call_graph_runtime.json"
+HIERARCHICAL_PLOT_STEM = "call_graph_runtime_hierarchical"
+
+
+def load_graph(graph_path: Path) -> nx.DiGraph:
+    """Load a runtime graph JSON file into a directed NetworkX graph."""
+    graph_data: dict[str, Any] = json.loads(graph_path.read_text(encoding="utf-8"))
+    graph = nx.DiGraph()
+
+    for node in graph_data["nodes"]:
+        if not isinstance(node, str) or not node:
+            raise ValueError(f"Invalid graph node in {graph_path}")
+        graph.add_node(node)
+
+    for edge in graph_data["edges"]:
+        caller = edge["caller"]
+        callee = edge["callee"]
+        frequency = edge["frequency"]
+        if not isinstance(caller, str) or not caller:
+            raise ValueError(f"Invalid edge caller in {graph_path}")
+        if not isinstance(callee, str) or not callee:
+            raise ValueError(f"Invalid edge callee in {graph_path}")
+        if not isinstance(frequency, int) or frequency <= 0:
+            raise ValueError(f"Invalid edge frequency in {graph_path}")
+        graph.add_edge(caller, callee, weight=frequency)
+
+    if not graph.nodes:
+        raise ValueError(f"Runtime graph contains no service nodes: {graph_path}")
+    return graph
+
+
+def discover_plots(data_dir: Path, suites: tuple[Suite, ...]) -> list[GraphPlot]:
+    """Discover the runtime graph SVGs to render for the selected benchmark suites."""
+    plots: list[GraphPlot] = []
+    for suite in suites:
+        suite_dir = data_dir / suite.value
+        if not suite_dir.is_dir():
+            raise FileNotFoundError(f"Missing dataset suite directory: {suite_dir}")
+
+        graph_paths = sorted(suite_dir.rglob(RUNTIME_GRAPH_FILENAME))
+        if not graph_paths:
+            raise FileNotFoundError(f"No {RUNTIME_GRAPH_FILENAME} files found in {suite_dir}")
+
+        for graph_path in graph_paths:
+            instance_dir = graph_path.parent
+            instance_name = instance_dir.relative_to(data_dir).as_posix().replace("/", " / ")
+            plots.append(
+                GraphPlot(
+                    graph_path=graph_path,
+                    output_prefix=instance_dir / HIERARCHICAL_PLOT_STEM,
+                    title=f"{instance_name} Runtime Call Graph",
+                )
+            )
+    return plots
+
+
+def render_plot(graph_plot: GraphPlot) -> None:
+    """Render a single runtime graph with the shared hierarchical visualization logic."""
+    graph = load_graph(graph_plot.graph_path)
+    visualize_graph(
+        graph,
+        graph_plot.title,
+        save_prefix=str(graph_plot.output_prefix),
+        layout_type="hierarchical",
+        buggy_methods=None,
+    )
+
+
+def main() -> None:
+    """Render hierarchical runtime call-graph plots for the selected suites."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    graph_plots = discover_plots(DATA_DIR, SELECTED_SUITES)
+    for graph_plot in graph_plots:
+        LOGGER.info(f"Rendering {graph_plot.graph_path.relative_to(ROOT_DIR)}")
+        render_plot(graph_plot)
+    LOGGER.info(f"Rendered {len(graph_plots)} hierarchical runtime call-graph SVGs")
+
 
 if __name__ == "__main__":
-    data_dir = Path(DATA_DIR)
-    if not data_dir.exists():
-        logger.error(f"Data directory {data_dir} does not exist. Run rca_eval_init.py first.")
-        sys.exit(1)
-
-    target_datasets = ["RE2", "RE3"]
-    trace_files_found = 0
-    extracted_graphs = 0
-
-    for dataset in target_datasets:
-        dataset_dir = data_dir / dataset
-        if not dataset_dir.exists():
-            continue
-
-        # Look for traces.csv within subdirectories
-        for traces_csv in dataset_dir.rglob("traces.csv"):
-            trace_files_found += 1
-            folder_path = traces_csv.parent
-            logger.info(f"Processing {traces_csv.relative_to(data_dir)}")
-
-            try:
-                trace_parser = RCAEvalTraceParser(str(traces_csv))
-                G = trace_parser.build_call_graph(granularity=GRANULARITY)
-                
-                # Convert and Save
-                call_graph_obj = convert_nx_to_callgraph(G)
-                out_json = folder_path / "call_graph.json"
-                save_to_json(call_graph_obj, str(out_json))
-                
-                # Optional visualization
-                if VISUALIZE:
-                    plot_title = f"{folder_path.name} Call Graph"
-                    save_prefix = str(folder_path / "call_graph_plot")
-                    plot_json_graph(str(out_json), plot_title, save_prefix)
-                
-                extracted_graphs += 1
-            except Exception as e:
-                logger.error(f"Failed to extract graph for {traces_csv}: {e}", exc_info=True)
-
-    logger.info(f"Extraction Summary:")
-    logger.info(f"Trace files found: {trace_files_found}")
-    logger.info(f"Graphs successfully extracted: {extracted_graphs}")
+    main()

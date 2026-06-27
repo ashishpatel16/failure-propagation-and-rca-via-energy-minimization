@@ -205,12 +205,6 @@ def compute_method_dstar(coverage_df: pd.DataFrame, star: int = 2) -> dict[str, 
 
 
 def normalize_scores(scores: dict) -> dict:
-    """Min-max normalize suspiciousness into [0, 1] so it can serve as the
-    cut's pseudo-probability data term. This is monotonic, so it never changes
-    the baseline ranking; it only calibrates the magnitudes the cut consumes.
-    Needed because D* is unbounded (and can be inf) while BoykovJollyCut expects
-    a [0, 1] score. inf maps to 1.0 (max suspicious); a degenerate all-equal
-    input maps to a neutral 0.5."""
     finite = [v for v in scores.values() if math.isfinite(v)]
     if not finite:
         return {k: 0.0 for k in scores}
@@ -223,10 +217,7 @@ def normalize_scores(scores: dict) -> dict:
     return out
 
 def compute_graphcut_scores(G: nx.DiGraph, node_scores: dict, lambd: float) -> dict:
-    """Runs the Boykov-Jolly cut using `node_scores` (already restricted to the
-    graph nodes) as the data term, and returns the per-node min-marginal
-    confidence e0 - e1 (higher = more buggy)."""
-    cut_algo = BoykovJollyCut(G, normalize_scores(node_scores), lambd=lambd)
+    cut_algo = BoykovJollyCut(G, node_scores, lambd=lambd)
     return {node: (lambda em: em[0] - em[1])(cut_algo.compute_min_marginals(node))
             for node in cut_algo.nodes}
 
@@ -237,9 +228,6 @@ def evaluate(project, bug_id, lambd=1.0):
     G = json_to_digraph(extraction_res.graph_json)
     nodes = list(G.nodes())
 
-    # Ground truth is NOT needed to compute rankings (it's only used for the
-    # downstream comparison). Warn on mismatches but never abort, so every
-    # instance still gets ranked and exported.
     graph_nodes_no_args = {n.split('(')[0] for n in nodes}
     for buggy_method in extraction_res.buggy_methods:
         bm = buggy_method.replace('$', '.').split('(')[0]
@@ -274,8 +262,6 @@ def evaluate(project, bug_id, lambd=1.0):
 
     results = pd.DataFrame(metric_on_nodes)
 
-    # Graph-cut variant of each baseline, using that same metric as the data
-    # term (the fair pairing: GC(tarantula) vs tarantula, etc.).
     for name, node_scores in metric_on_nodes.items():
         gc_scores = compute_graphcut_scores(G, node_scores, lambd)
         results[f"{name}_gc"] = results.index.map(gc_scores)
@@ -293,7 +279,7 @@ def evaluate(project, bug_id, lambd=1.0):
         results[f"{col}_expected_inspections"] = expected_rank
         results[f"{col}_exam_score"] = expected_rank / total_methods
 
-    return results.sort_values(by="tarantula_rank")
+    return results
 
 def get_single_bugs(bugs):
     working_instances = {}
@@ -355,27 +341,33 @@ def _run_instance(task):
 if __name__ == "__main__":
     from multiprocessing import Pool
     from tqdm import tqdm
-    eval_parent = "evals_lambd1"
+    eval_parent = "evals_no_norm"
 
-    lambdas_to_ablate = [1.0]
+    lambdas_to_ablate = [0.1]
     for lambd_value in lambdas_to_ablate:
         output_dir = f"{eval_parent}/eval_lambd_{lambd_value}"
         os.makedirs(output_dir, exist_ok=True)
         lambd_value = lambd_value
-        max_workers = 3
+        max_workers = 4
 
         print(f"Starting benchmark with lambda = {lambd_value}")
 
         base_path = ROOT_DIR / "data" / "defects4j"
         bugs = sorted([item for item in base_path.iterdir() if item.is_dir()])
 
-        single_bug_instances = get_single_bugs(bugs)
+        single_bug_instances = get_single_bugs(bugs)[:10]
         print(single_bug_instances)
 
+        # # TARGET_PROJECTS allows you to filter which projects to run. 
+        # # Leave as an empty list [] to run all projects.
+        # # Example: TARGET_PROJECTS = ["Math", "Lang", "Chart"]
+        # TARGET_PROJECTS = ["Collections", "JacksonDatabind"]
+        
         # Flatten to one task per instance; the project grouping was only cosmetic.
         tasks = [
             (row["project"], int(row["bug_id"]), lambd_value, output_dir)
             for _, row in single_bug_instances.iterrows()
+            # if not TARGET_PROJECTS or row["project"] in TARGET_PROJECTS
         ]
 
         print(f"Starting benchmark: {len(tasks)} instances on {max_workers} workers...\n")

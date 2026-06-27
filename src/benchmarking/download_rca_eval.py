@@ -18,8 +18,8 @@ except ImportError:
     logging.error("Please install it using: uv pip install -e './data/rca_eval_repo[default]'")
     sys.exit(1)
 
-INCLUDE_RE1: bool = True
-SKIP_RE2: bool = False
+INCLUDE_RE1: bool = False
+SKIP_RE2: bool = True
 SKIP_RE3: bool = False
 
 if __name__ == "__main__":

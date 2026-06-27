@@ -24,7 +24,7 @@ EXPECTED_SUFFIX = "_expected_inspections"
 
 
 def method_key(name: str) -> str:
-    return str(name).strip().replace("$", ".").split("(", 1)[0]
+    return str(name).strip().replace("$", ".")
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,28 +55,40 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_ground_truth(path: Path) -> dict[tuple[str, int], list[str]]:
+def load_ground_truth(path: Path) -> dict[tuple[str, int], dict]:
     if not path.is_file():
         raise FileNotFoundError(f"Ground truth not found: {path}")
     frame = pd.read_csv(path, dtype={"project": str, "bug_id": int})
-    required = {"project", "bug_id", "buggy_methods"}
+    required = {
+        "project", "bug_id", "buggy_methods", "buggy_nodes", "trace_status"
+    }
     if not required.issubset(frame.columns):
         raise ValueError(f"Ground truth must contain {sorted(required)}")
 
-    result: dict[tuple[str, int], list[str]] = {}
+    result: dict[tuple[str, int], dict] = {}
     for row in frame.itertuples(index=False):
         try:
             methods = json.loads(row.buggy_methods)
+            nodes = json.loads(row.buggy_nodes)
         except (TypeError, json.JSONDecodeError) as exc:
             raise ValueError(
                 f"Invalid buggy_methods JSON for {row.project}_{row.bug_id}"
             ) from exc
-        if not isinstance(methods, list) or not all(isinstance(m, str) for m in methods):
-            raise ValueError(f"buggy_methods must be a JSON list for {row.project}_{row.bug_id}")
+        if (
+            not isinstance(methods, list)
+            or not all(isinstance(m, str) for m in methods)
+            or not isinstance(nodes, list)
+            or not all(isinstance(n, str) for n in nodes)
+        ):
+            raise ValueError(f"Invalid method/node list for {row.project}_{row.bug_id}")
         key = (row.project, int(row.bug_id))
         if key in result:
             raise ValueError(f"Duplicate ground-truth row: {row.project}_{row.bug_id}")
-        result[key] = sorted(set(method_key(m) for m in methods))
+        result[key] = {
+            "methods": sorted(set(methods)),
+            "nodes": sorted(set(method_key(node) for node in nodes)),
+            "trace_status": row.trace_status,
+        }
     return result
 
 
@@ -128,7 +140,7 @@ def score_families(frame: pd.DataFrame) -> list[str]:
 
 def analyze_file(
     path: Path,
-    truth: dict[tuple[str, int], list[str]],
+    truth: dict[tuple[str, int], dict],
     top_ks: list[int],
 ) -> tuple[dict, list[dict], list[dict]]:
     project, bug_id, lambda_label, lambda_value = identify_result(path)
@@ -139,27 +151,34 @@ def analyze_file(
     if not families:
         raise ValueError(f"No complete score/rank column families in {path}")
 
-    gt_methods = truth.get((project, bug_id))
-    if gt_methods is None:
+    annotation = truth.get((project, bug_id))
+    if annotation is None:
         status = "missing_ground_truth"
+        source_methods = []
         gt_methods = []
-    elif not gt_methods:
-        status = "representation_gap"
+        trace_status = "missing_ground_truth"
     else:
+        source_methods = annotation["methods"]
+        gt_methods = annotation["nodes"]
+        trace_status = annotation["trace_status"]
+
+    if trace_status == "representation_gap":
+        status = "representation_gap"
+    elif annotation is not None:
         status = "pending"
 
     frame = frame.copy()
     frame["_method_key"] = frame["Method"].map(method_key)
     matched_keys = [key for key in gt_methods if (frame["_method_key"] == key).any()]
     if status == "pending":
-        if not matched_keys:
+        if trace_status == "trace_gap" and not matched_keys:
             status = "fault_not_in_results"
-        elif len(matched_keys) < len(gt_methods):
+        elif trace_status == "trace_gap" or len(matched_keys) < len(gt_methods):
             status = "partially_traceable"
         else:
             status = "fully_traceable"
 
-    ambiguous = sum((frame["_method_key"] == key).sum() > 1 for key in matched_keys)
+    ambiguous = 0
     instance = {
         "project": project,
         "bug_id": bug_id,
@@ -168,7 +187,7 @@ def analyze_file(
         "result_file": str(path.resolve()),
         "status": status,
         "total_methods": len(frame),
-        "ground_truth_methods": len(gt_methods),
+        "ground_truth_methods": len(source_methods),
         "matched_ground_truth_methods": len(matched_keys),
         "ambiguous_overload_keys": ambiguous,
     }
@@ -179,8 +198,6 @@ def analyze_file(
             per_fault = []
             for key in matched_keys:
                 candidates = frame.loc[frame["_method_key"] == key]
-                # Argument-free ground truth can match overloads. The best overload
-                # rank is used and the ambiguity is explicitly counted above.
                 per_fault.append({
                     "method_key": key,
                     "expected_rank": float(candidates[f"{family}_expected_inspections"].min()),

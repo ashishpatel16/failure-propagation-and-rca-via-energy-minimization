@@ -1,0 +1,56 @@
+{'Math_76_0.1':                                               Method  GraphCut_Score  \
+ 4  org.apache.commons.math.linear.SingularValueDe...        6.496039   
+ 
+    tarantula    ochiai     dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 4   0.995794  0.426401  0.444444          4.0             4.0         4.0   
+ 
+    GraphCut_Score_rank  
+ 4                  4.0  ,
+ 'Jsoup_63_0.1':                                                Method  GraphCut_Score  \
+ 77  org.jsoup.parser.HtmlTreeBuilder#insertEmpty(o...       -4.495913   
+ 
+     tarantula    ochiai     dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 77   0.791953  0.143674  0.084112         16.0            33.0        15.0   
+ 
+     GraphCut_Score_rank  
+ 77                179.0  ,
+ 'Math_81_0.1':                                                 Method  GraphCut_Score  \
+ 104  org.apache.commons.math.linear.EigenDecomposit...         4.41094   
+ 
+      tarantula    ochiai     dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 104   0.984045  0.169031  0.029412         14.5            14.5        14.5   
+ 
+      GraphCut_Score_rank  
+ 104                 18.5  ,
+ 'Collections_20_0.1':                                                Method  GraphCut_Score  \
+ 40  org.apache.commons.collections.list.TreeList.T...       -3.406376   
+ 
+     tarantula    ochiai     dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 40   0.105138  0.004851  0.000235          5.0             5.0         5.0   
+ 
+     GraphCut_Score_rank  
+ 40                  4.0  ,
+ 'Chart_3_0.1':                                                Method  GraphCut_Score  \
+ 89  org.jfree.data.time.TimeSeries#createCopy(int,...        7.807316   
+ 
+     tarantula   ochiai  dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 89   0.999088  0.57735    0.5          1.0             1.0         1.0   
+ 
+     GraphCut_Score_rank  
+ 89                  2.0  ,
+ 'Compress_36_0.1':                                                 Method  GraphCut_Score  \
+ 151  org.apache.commons.compress.archivers.sevenz.S...       -1.165974   
+ 
+      tarantula    ochiai     dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 151   0.550593  0.044281  0.022222         12.0            12.0        12.0   
+ 
+      GraphCut_Score_rank  
+ 151                 45.0  ,
+ 'JxPath_19_0.1':                                                 Method  GraphCut_Score  \
+ 254  org.apache.commons.jxpath.ri.model.jdom.JDOMNo...   -1.000000e+09   
+ 
+      tarantula  ochiai  dstar  ochiai_rank  tarantula_rank  dstar_rank  \
+ 254        0.0     0.0    0.0        184.0           184.0       184.0   
+ 
+      GraphCut_Score_rank  
+ 254                109.5  }

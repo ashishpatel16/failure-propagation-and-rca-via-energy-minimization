@@ -1,0 +1,12 @@
+{
+    "Num_Nodes": 223,
+    "Num_Edges": 426,
+    "Density": 0.008605017573627438,
+    "Is_DAG": false,
+    "Reciprocity": 0.018779342723004695,
+    "Num_SCC": 216,
+    "Num_WCC": 8,
+    "Degree_Assortativity": -0.09025314409908015,
+    "Largest_SCC_Avg_Path_Length": 2.0,
+    "Largest_SCC_Diameter": 3
+}

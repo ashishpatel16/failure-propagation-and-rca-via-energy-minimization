@@ -50,12 +50,17 @@ class BoykovJollyCut:
                 self.D1[node] = float('inf')
 
     def _compute_pairwise_potentials(self) -> None:
-        """Calculates and caches log-coupling capacities for edges."""
+        """Calculates and caches log-coupling capacities for edges, normalized to [0, 1]."""
         seen_edges = set()
+        max_coupling = 0.0
+        
         for u, v in self.original_graph.edges():
             if u in ["SOURCE", "TERMINAL"] or v in ["SOURCE", "TERMINAL"]:
                 continue
-                
+
+            if u == v:
+                continue
+
             edge_set = frozenset([u, v])
             if edge_set in seen_edges:
                 continue
@@ -65,7 +70,16 @@ class BoykovJollyCut:
             freq_vu = self.original_graph[v][u]['weight'] if self.original_graph.has_edge(v, u) else 0
             
             # log(1 + freq) formulation
-            self.C_ij[edge_set] = math.log1p(freq_uv + freq_vu)
+            coupling = math.log1p(freq_uv + freq_vu)
+            self.C_ij[edge_set] = coupling
+            
+            if coupling > max_coupling:
+                max_coupling = coupling
+                
+        # Normalize to [0, 1]
+        if max_coupling > 0:
+            for edge_set in self.C_ij:
+                self.C_ij[edge_set] /= max_coupling
 
     def build_st_graph(self, constrained_node: Optional[str], constrained_label: Optional[int]) -> nx.DiGraph:
         """
