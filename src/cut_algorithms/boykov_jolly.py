@@ -10,7 +10,8 @@ class BoykovJollyCut:
     Optimizes the Gibbs energy E(L) = sum D_i(L_i) + lambda * sum V_ij(L_i, L_j)
     """
     
-    def __init__(self, G: nx.DiGraph, sbfl_scores: Dict[str, float], lambd: float):
+    def __init__(self, G: nx.DiGraph, sbfl_scores: Dict[str, float], lambd: float, 
+                 enable_directional: bool = False, downstream_penalty: float = 0.1, upstream_penalty: float = 1.0):
         """
         Initializes the Boykov-Jolly cut algorithm.
         
@@ -18,15 +19,22 @@ class BoykovJollyCut:
             G: A NetworkX DiGraph representing the call graph (with 'weight' on edges representing frequencies).
             sbfl_scores: A dictionary mapping method names to their SBFL suspiciousness score [0, 1].
             lambd: The lambda hyperparameter controlling the trade-off between unary and pairwise potentials.
+            enable_directional: If True, uses asymmetric edge capacities for failure propagation.
+            downstream_penalty: Multiplier when cutting Caller -> Callee (Caller is Buggy, Callee is Normal).
+            upstream_penalty: Multiplier when cutting Callee -> Caller (Callee is Buggy, Caller is Normal).
         """
         self.original_graph = G
         self.sbfl_scores = sbfl_scores
         self.lambd = lambd
+        self.enable_directional = enable_directional
+        self.downstream_penalty = downstream_penalty
+        self.upstream_penalty = upstream_penalty
         
         # Internal state
         self.D0: Dict[str, float] = {}
         self.D1: Dict[str, float] = {}
         self.C_ij: Dict[frozenset, float] = {}
+        self.C_uv: Dict[Tuple[str, str], float] = {}
         
         # Valid nodes (excluding any previously inserted SOURCE/TERMINAL nodes if any)
         self.nodes = [n for n in G.nodes() if n not in ["SOURCE", "TERMINAL"]]
@@ -40,19 +48,16 @@ class BoykovJollyCut:
         for node in self.nodes:
             score = self.sbfl_scores.get(node, 0.0)
             
-            if score > 0:
-                # Clamp score to avoid log(0)
-                score_clamped = min(max(score, epsilon), 1.0 - epsilon)
-                self.D0[node] = -math.log(1 - score_clamped)
-                self.D1[node] = -math.log(score_clamped)
-            else:
-                self.D0[node] = 0.0
-                self.D1[node] = float('inf')
+            # Clamp score to avoid log(0)
+            score_clamped = min(max(score, epsilon), 1.0 - epsilon)
+            self.D0[node] = -math.log(1 - score_clamped)
+            self.D1[node] = -math.log(score_clamped)
+            
 
     def _compute_pairwise_potentials(self) -> None:
-        """Calculates and caches log-coupling capacities for edges, normalized to [0, 1]."""
+        """Calculates and caches log-coupling capacities for edges"""
         seen_edges = set()
-        max_coupling = 0.0
+        # max_coupling = 0.0
         
         for u, v in self.original_graph.edges():
             if u in ["SOURCE", "TERMINAL"] or v in ["SOURCE", "TERMINAL"]:
@@ -66,20 +71,32 @@ class BoykovJollyCut:
                 continue
             seen_edges.add(edge_set)
             
+
             freq_uv = self.original_graph[u][v]['weight']
-            freq_vu = self.original_graph[v][u]['weight'] if self.original_graph.has_edge(v, u) else 0
+            freq_vu = self.original_graph[v][u]['weight'] if self.original_graph.has_edge(v,u) else 0
             
             # log(1 + freq) formulation
-            coupling = math.log1p(freq_uv + freq_vu)
-            self.C_ij[edge_set] = coupling
+            base_coupling = math.log1p(freq_uv + freq_vu) / math.sqrt(self.original_graph.degree[u] * self.original_graph.degree[v])
             
-            if coupling > max_coupling:
-                max_coupling = coupling
+            if self.enable_directional:
+                # Downstream: Caller is Buggy, Callee is Normal
+                self.C_uv[(u, v)] = base_coupling * self.downstream_penalty
+                # Upstream: Callee is Buggy, Caller is Normal
+                self.C_uv[(v, u)] = base_coupling * self.upstream_penalty
+            else:
+                self.C_ij[edge_set] = base_coupling
+            
+        #     if base_coupling > max_coupling:
+        #         max_coupling = base_coupling
                 
-        # Normalize to [0, 1]
-        if max_coupling > 0:
-            for edge_set in self.C_ij:
-                self.C_ij[edge_set] /= max_coupling
+        # # Normalize to [0, 1]
+        # if max_coupling > 0:
+        #     if self.enable_directional:
+        #         for uv in self.C_uv:
+        #             self.C_uv[uv] /= max_coupling
+        #     else:
+        #         for edge_set in self.C_ij:
+        #             self.C_ij[edge_set] /= max_coupling
 
     def build_st_graph(self, constrained_node: Optional[str], constrained_label: Optional[int]) -> nx.DiGraph:
         """
@@ -110,8 +127,6 @@ class BoykovJollyCut:
                     # Force to SOURCE (1): infinite cost to cut the S->node edge
                     cap_S_to_node = float('inf')
             
-            # networkx boykov_kolmogorov doesn't handle actual 'inf' correctly for capacities sometimes,
-            # so we use a very large finite number for infinity
             safe_inf = 1e9
             if cap_S_to_node == float('inf'): cap_S_to_node = safe_inf
             if cap_node_to_T == float('inf'): cap_node_to_T = safe_inf
@@ -119,17 +134,25 @@ class BoykovJollyCut:
             G_cut.add_edge("SOURCE", node, capacity=cap_S_to_node)
             G_cut.add_edge(node, "TERMINAL", capacity=cap_node_to_T)
             
-        for edge_set, coupling in self.C_ij.items():
-            nodes_list = list(edge_set)
-            if len(nodes_list) == 1:
-                continue # ignore self loops
-            u, v = nodes_list[0], nodes_list[1]
-            
-            pairwise_cost = self.lambd * coupling
-            if pairwise_cost > 0:
-                # Add bi-directional n-links
-                G_cut.add_edge(u, v, capacity=pairwise_cost)
-                G_cut.add_edge(v, u, capacity=pairwise_cost)
+        if self.enable_directional:
+            for (u, v), coupling in self.C_uv.items():
+                if u == v: continue
+                pairwise_cost = self.lambd * coupling
+                if pairwise_cost > 0:
+                    G_cut.add_edge(u, v, capacity=pairwise_cost)
+        else:
+            for edge_set, coupling in self.C_ij.items():
+                nodes_list = list(edge_set)
+                if len(nodes_list) == 1:
+                    continue # ignore self loops
+                
+                u, v = nodes_list[0], nodes_list[1]
+                
+                pairwise_cost = self.lambd * coupling
+                if pairwise_cost > 0:
+                    # Add bi-directional n-links
+                    G_cut.add_edge(u, v, capacity=pairwise_cost)
+                    G_cut.add_edge(v, u, capacity=pairwise_cost)
                 
         return G_cut
 
@@ -196,29 +219,33 @@ class BoykovJollyCut:
         Returns:
             The total Gibbs energy E(L).
         """
-        regional_term = 0.0
+        energy = 0.0
         for node in self.nodes:
             label = labeling.get(node, 0)
             if label == 0:
-                regional_term += self.D0.get(node, 0.0)
+                energy += self.D0.get(node, 0.0)
             else:
                 cost = self.D1.get(node, 0.0)
-                regional_term += 1e9 if cost == float('inf') else cost
+                energy += 1e9 if cost == float('inf') else cost
                 
-        pairwise_term = 0.0
-        for edge_set, coupling in self.C_ij.items():
-            nodes_list = list(edge_set)
-            if len(nodes_list) == 1:
-                continue
-            u, v = nodes_list[0], nodes_list[1]
+        if self.enable_directional:
+            for (u, v), coupling in self.C_uv.items():
+                if labeling.get(u, 0) == 1 and labeling.get(v, 0) == 0:
+                    energy += self.lambd * coupling
+        else:
+            for edge_set, coupling in self.C_ij.items():
+                nodes_list = list(edge_set)
+                if len(nodes_list) == 1:
+                    continue
+                u, v = nodes_list[0], nodes_list[1]
+                
+                label_u = labeling.get(u, 0)
+                label_v = labeling.get(v, 0)
+                
+                disagreement = 1 if label_u != label_v else 0
+                energy += self.lambd * coupling * disagreement
             
-            label_u = labeling.get(u, 0)
-            label_v = labeling.get(v, 0)
-            
-            disagreement = 1 if label_u != label_v else 0
-            pairwise_term += self.lambd * coupling * disagreement
-            
-        return regional_term + pairwise_term
+        return energy
 
     def generate_all_labelings(self) -> List[Dict[str, int]]:
         """
@@ -259,31 +286,51 @@ class BoykovJollyCut:
         
         # Edges DF
         edge_data = []
-        for edge_set, coupling in self.C_ij.items():
-            nodes_list = list(edge_set)
-            if len(nodes_list) == 1:
-                continue
-            u, v = nodes_list[0], nodes_list[1]
-            
-            label_u = optimal_labeling.get(u, 0)
-            label_v = optimal_labeling.get(v, 0)
-            disagreement = 1 if label_u != label_v else 0
-            pairwise = self.lambd * coupling * disagreement
-            
-            freq_uv = self.original_graph[u][v].get('weight', 0) if self.original_graph.has_edge(u, v) else 0
-            freq_vu = self.original_graph[v][u].get('weight', 0) if self.original_graph.has_edge(v, u) else 0
-            
-            edge_data.append({
-                'Node1': str(u).split('#')[-1],
-                'Node2': str(v).split('#')[-1],
-                'Freq_1_to_2': freq_uv,
-                'Freq_2_to_1': freq_vu,
-                'Coupling': coupling,
-                'Label_1': label_u,
-                'Label_2': label_v,
-                'Disagreement': disagreement,
-                'Pairwise_Cost': pairwise
-            })
+        if self.enable_directional:
+            for (u, v), coupling in self.C_uv.items():
+                label_u = optimal_labeling.get(u, 0)
+                label_v = optimal_labeling.get(v, 0)
+                disagreement = 1 if label_u == 1 and label_v == 0 else 0
+                pairwise = self.lambd * coupling * disagreement
+                
+                freq_uv = self.original_graph[u][v].get('weight', 0) if self.original_graph.has_edge(u, v) else 0
+                
+                edge_data.append({
+                    'Node1 (Caller)': str(u).split('#')[-1],
+                    'Node2 (Callee)': str(v).split('#')[-1],
+                    'Freq_1_to_2': freq_uv,
+                    'Coupling': coupling,
+                    'Label_1': label_u,
+                    'Label_2': label_v,
+                    'Disagreement': disagreement,
+                    'Pairwise_Cost': pairwise
+                })
+        else:
+            for edge_set, coupling in self.C_ij.items():
+                nodes_list = list(edge_set)
+                if len(nodes_list) == 1:
+                    continue
+                u, v = nodes_list[0], nodes_list[1]
+                
+                label_u = optimal_labeling.get(u, 0)
+                label_v = optimal_labeling.get(v, 0)
+                disagreement = 1 if label_u != label_v else 0
+                pairwise = self.lambd * coupling * disagreement
+                
+                freq_uv = self.original_graph[u][v].get('weight', 0) if self.original_graph.has_edge(u, v) else 0
+                freq_vu = self.original_graph[v][u].get('weight', 0) if self.original_graph.has_edge(v, u) else 0
+                
+                edge_data.append({
+                    'Node1': str(u).split('#')[-1],
+                    'Node2': str(v).split('#')[-1],
+                    'Freq_1_to_2': freq_uv,
+                    'Freq_2_to_1': freq_vu,
+                    'Coupling': coupling,
+                    'Label_1': label_u,
+                    'Label_2': label_v,
+                    'Disagreement': disagreement,
+                    'Pairwise_Cost': pairwise
+                })
         df_edges = pd.DataFrame(edge_data)
         
         return df_nodes, df_edges
