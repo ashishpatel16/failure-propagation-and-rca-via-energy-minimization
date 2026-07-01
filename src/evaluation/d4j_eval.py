@@ -7,6 +7,7 @@ import logging
 import math
 import random
 import ast
+import re
 
 from graph_generation.sbfl.extractor import ExtractionResult
 from cut_algorithms.boykov_jolly import BoykovJollyCut
@@ -45,29 +46,63 @@ def load_pregen_data(project: str, bug_id: int, data_dir: Path) -> ExtractionRes
     
     return res
 
+SYNTHETIC_PATTERNS = [
+    r"#access[\.$]\d+\(",      # access$300 or access.300
+    r"#lambda[\.$].*\(",       # lambda$...
+    r"#\$jacocoInit\(",        # JaCoCo instrumentation
+]
+
+def is_generated_method(node: str) -> bool:
+    return any(re.search(pattern, node) for pattern in SYNTHETIC_PATTERNS)
+
 def json_to_digraph(graph_json: str) -> nx.DiGraph:
     with open(graph_json, 'r') as f:
         graph_data: Dict = json.load(f)
 
     G: nx.DiGraph = nx.DiGraph()
     for edge in graph_data['edges']:
+        if is_generated_method(edge['caller']) or is_generated_method(edge['callee']):
+            continue
         caller: str = edge['caller'].replace('$', '.')
         callee: str = edge['callee'].replace('$', '.')
         G.add_edge(caller, callee, weight=float(edge['frequency']))
     
     for node in graph_data.get('nodes', []):
+        if is_generated_method(node):
+            continue
         n_clean: str = node.replace('$', '.')
         if n_clean not in G:
             G.add_node(n_clean)
     return G
 
 
-def compute_graphcut_scores(G: nx.DiGraph, node_scores: Dict[str, float], lambd: float) -> Dict[str, float]:
-    cut_algo: BoykovJollyCut = BoykovJollyCut(G, node_scores, lambd=lambd)
-    return {node: (lambda em: em[0] - em[1])(cut_algo.compute_min_marginals(node))
-            for node in cut_algo.nodes}
 
-def evaluate_instance(project: str, bug_id: int, lambd: float, data_dir: Path) -> pd.DataFrame:
+
+
+def _log_odds(probability: float) -> float:
+    eps = 1e-12
+    score_clamped = min(max(float(probability), eps), 1.0 - eps)
+    return math.log(score_clamped / (1.0 - score_clamped))
+
+
+def compute_graphcut_scores(G: nx.DiGraph, node_scores: Dict[str, float], lambd: float) -> Dict[str, float]:
+    graph_nodes = [n for n in G.nodes() if n not in ["SOURCE", "TERMINAL"]]
+    raw_scores = {node: node_scores.get(node, 0.0) for node in graph_nodes}
+
+    if lambd == 0:
+        return {node: round(_log_odds(raw_scores.get(node, 0.5)), 9) for node in graph_nodes}
+
+    cut_algo: BoykovJollyCut = BoykovJollyCut(G, raw_scores, lambd=lambd, enable_directional=True, pairwise_variant="degree_normalized")
+    scores: Dict[str, float] = {}
+    for node in cut_algo.nodes:
+        e0, e1 = cut_algo.compute_min_marginals(node)
+        # Round to suppress ~1e-13 max-flow float noise that would otherwise
+        # break exact SBFL ties (and make lambda=0 disagree with the baseline).
+        scores[node] = round(e0 - e1, 9)
+    return scores
+
+
+def evaluate_instances_for_lambdas(project: str, bug_id: int, lambdas: List[float], data_dir: Path) -> Dict[float, pd.DataFrame]:
     extraction_res: ExtractionResult = load_pregen_data(project, bug_id, data_dir)
 
     G: nx.DiGraph = json_to_digraph(extraction_res.graph_json)
@@ -81,48 +116,78 @@ def evaluate_instance(project: str, bug_id: int, lambd: float, data_dir: Path) -
         if bm not in graph_nodes_no_args:
             raise ValueError(f"buggy method {buggy_method} not in call graph")
 
-    coverage_df: pd.DataFrame = pd.read_csv(data_dir / "coverage.csv")
-    method_df: pd.DataFrame = aggregate_coverage(coverage_df)
+    cache_file = data_dir / "sbfl_node_metrics.json"
+    metric_on_nodes = None
+    
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r') as f:
+                cached_metrics = json.load(f)
+            
+            if "tarantula" in cached_metrics and set(cached_metrics["tarantula"].keys()) == set(nodes):
+                metric_on_nodes = cached_metrics
+        except Exception as e:
+            logging.warning(f"[{project}:{bug_id}] Failed to load cached metrics: {e}")
+            
+    if metric_on_nodes is None:
+        coverage_df: pd.DataFrame = pd.read_csv(data_dir / "coverage.csv")
+        method_df: pd.DataFrame = aggregate_coverage(coverage_df)
+    
+        baselines: Dict[str, Dict[str, float]] = {
+            "tarantula": compute_tarantula(method_df),
+            "ochiai": compute_ochiai(method_df),
+            "dstar": compute_dstar(method_df),
+        }
+    
+        nodes_coverage: Set[str] = set(baselines["tarantula"].keys())
+        missing_in_cov: Set[str] = set(nodes) - nodes_coverage
+        if missing_in_cov:
+            logging.warning(
+                f"[{project}:{bug_id}] {len(missing_in_cov)} graph nodes missing from "
+                f"coverage (assigned score 0.0)"
+            )
+    
+        # Project each baseline onto the graph nodes (uncovered nodes -> 0.0).
+        metric_on_nodes = {
+            name: {node: float(scores.get(node, 0.0)) for node in nodes}
+            for name, scores in baselines.items()
+        }
+        
+        with open(cache_file, 'w') as f:
+            json.dump(metric_on_nodes, f)
 
-    baselines: Dict[str, Dict[str, float]] = {
-        "tarantula": compute_tarantula(method_df),
-        "ochiai": compute_ochiai(method_df),
-        "dstar": compute_dstar(method_df),
-    }
+    all_results = {}
+    for lambd in lambdas:
+        results: pd.DataFrame = pd.DataFrame(metric_on_nodes)
 
-    nodes_coverage: Set[str] = set(baselines["tarantula"].keys())
-    missing_in_cov: Set[str] = set(nodes) - nodes_coverage
-    if missing_in_cov:
-        logging.warning(
-            f"[{project}:{bug_id}] {len(missing_in_cov)} graph nodes missing from "
-            f"coverage (assigned score 0.0)"
-        )
+        for name, node_scores in metric_on_nodes.items():
+            gc_scores: Dict[str, float] = compute_graphcut_scores(G, node_scores, lambd)
+            results[f"{name}_gc"] = results.index.map(gc_scores)
 
-    # Project each baseline onto the graph nodes (uncovered nodes -> 0.0).
-    metric_on_nodes: Dict[str, Dict[str, float]] = {
-        name: {node: scores.get(node, 0.0) for node in nodes}
-        for name, scores in baselines.items()
-    }
+        results = results.reset_index().rename(columns={"index": "Method"})
 
-    results: pd.DataFrame = pd.DataFrame(metric_on_nodes)
+        # Ranks + EXAM (expected inspection cost) for every baseline and its GC pair.
+        score_cols: List[str] = ["tarantula", "tarantula_gc",
+                      "ochiai", "ochiai_gc",
+                      "dstar", "dstar_gc"]
+        total_methods: int = len(results)
+        for col in score_cols:
+            expected_rank: pd.Series = results[col].rank(ascending=False, method="average")
+            min_rank: pd.Series = results[col].rank(ascending=False, method="min")
+            max_rank: pd.Series = results[col].rank(ascending=False, method="max")
+            
+            results[f"{col}_rank"] = expected_rank
+            results[f"{col}_exam_score"] = expected_rank / total_methods
+            
+            results[f"{col}_rank_min"] = min_rank
+            results[f"{col}_exam_score_min"] = min_rank / total_methods
+            
+            results[f"{col}_rank_max"] = max_rank
+            results[f"{col}_exam_score_max"] = max_rank / total_methods
+            
+        all_results[lambd] = results
 
-    for name, node_scores in metric_on_nodes.items():
-        gc_scores: Dict[str, float] = compute_graphcut_scores(G, node_scores, lambd)
-        results[f"{name}_gc"] = results.index.map(gc_scores)
-
-    results = results.reset_index().rename(columns={"index": "Method"})
-
-    # Ranks + EXAM (expected inspection cost) for every baseline and its GC pair.
-    score_cols: List[str] = ["tarantula", "tarantula_gc",
-                  "ochiai", "ochiai_gc",
-                  "dstar", "dstar_gc"]
-    total_methods: int = len(results)
-    for col in score_cols:
-        expected_rank: pd.Series = results[col].rank(ascending=False, method="average")
-        results[f"{col}_rank"] = expected_rank
-        results[f"{col}_exam_score"] = expected_rank / total_methods
-
-    return results
+    return all_results
 
 
 def get_node_properties_df(G: nx.DiGraph) -> pd.DataFrame:

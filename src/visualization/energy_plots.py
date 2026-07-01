@@ -99,7 +99,7 @@ def plot_energy_vs_probability_lambdas(lambdas, energy_map, temperature: float):
 
 import networkx as nx
 
-def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_type: str = "hierarchical", buggy_methods: list = None):
+def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_type: str = "hierarchical", buggy_methods: list = None, top_pred_node: str = None, metrics: dict = None):
     """
     Plots a 3D interactive energy landscape using Plotly.
     X and Y axes are the Kamada-Kawai layout (atomic lattice).
@@ -139,11 +139,18 @@ def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_
         
         for neighbor in unique_neighbors:
             l_j = optimal_labeling.get(neighbor, 0)
-            if l_i != l_j:
-                edge_set = frozenset([node, neighbor])
-                if edge_set in cut_algo.C_ij:
-                    # Distribute 50% of the cut penalty to this node
-                    pairwise_cost += 0.5 * cut_algo.lambd * cut_algo.C_ij[edge_set]
+            
+            if hasattr(cut_algo, 'enable_directional') and cut_algo.enable_directional:
+                if l_i == 1 and l_j == 0:
+                    pairwise_cost += 0.5 * cut_algo.lambd * cut_algo.C_uv.get((node, neighbor), 0.0)
+                elif l_i == 0 and l_j == 1:
+                    pairwise_cost += 0.5 * cut_algo.lambd * cut_algo.C_uv.get((neighbor, node), 0.0)
+            else:
+                if l_i != l_j:
+                    edge_set = frozenset([node, neighbor])
+                    if edge_set in cut_algo.C_ij:
+                        # Distribute 50% of the cut penalty to this node
+                        pairwise_cost += 0.5 * cut_algo.lambd * cut_algo.C_ij[edge_set]
                     
         # Total Energy = Unary + 50% of incident cuts
         node_energies[node] = unary_cost + pairwise_cost
@@ -178,6 +185,12 @@ def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_
             line_color = "#000000" # Black outline
             line_width = 3.0
             size = 18 + 25 * (z / max_energy) if max_energy > 0 else 22
+        elif top_pred_node and node == top_pred_node:
+            label_text = "Highest GC Score (Predicted)"
+            color = "#f1c40f" # Yellow
+            line_color = "#000000"
+            line_width = 2.0
+            size = 15 + 25 * (z / max_energy) if max_energy > 0 else 20
         elif is_buggy_pred:
             label_text = "Buggy (Predicted)"
             color = "#e74c3c" # Normal red
@@ -194,7 +207,18 @@ def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_
         # Format the method signature to be readable
         short_name = node.split('#')[-1] if isinstance(node, str) else str(node)
         
-        hover_texts.append(f"<b>{short_name}</b><br>Label: {label_text}<br>Energy: {z:.2f}")
+        score_info = ""
+        if metrics:
+            t = metrics.get('tarantula', {}).get(node, 0.0)
+            o = metrics.get('ochiai', {}).get(node, 0.0)
+            d = metrics.get('dstar', {}).get(node, 0.0)
+            score_info = f"<br>Tarantula: {t:.4f} | Ochiai: {o:.4f} | D*: {d:.4f}"
+            
+        unary_0 = cut_algo.D0.get(node, 0.0)
+        unary_1 = cut_algo.D1.get(node, 0.0)
+        reg_info = f"<br>D0 (Normal): {unary_0:.4f} | D1 (Buggy): {unary_1:.4f}"
+        
+        hover_texts.append(f"<b>{short_name}</b><br>Label: {label_text}<br>Total Energy: {z:.2f}{score_info}{reg_info}")
         colors.append(color)
         line_colors.append(line_color)
         line_widths.append(line_width)
@@ -220,6 +244,11 @@ def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_
     edge_y = []
     edge_z = []
     
+    edge_mid_x = []
+    edge_mid_y = []
+    edge_mid_z = []
+    edge_hover_texts = []
+    
     for u, v in G.edges():
         if u in pos and v in pos:
             x0, y0 = pos[u]
@@ -231,6 +260,24 @@ def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_
             edge_y.extend([y0, y1, None])
             edge_z.extend([z0, z1, None])
             
+            # Midpoint for hover text
+            u_name = u.split('#')[-1] if isinstance(u, str) else str(u)
+            v_name = v.split('#')[-1] if isinstance(v, str) else str(v)
+            
+            if hasattr(cut_algo, 'enable_directional') and cut_algo.enable_directional:
+                c_down = cut_algo.C_uv.get((u, v), 0.0)
+                c_up = cut_algo.C_uv.get((v, u), 0.0)
+                coupling_text = f"Downstream: {c_down:.4f}<br>Upstream: {c_up:.4f}"
+            else:
+                edge_set = frozenset([u, v])
+                coupling = cut_algo.C_ij.get(edge_set, 0.0)
+                coupling_text = f"Coupling: {coupling:.4f}"
+            
+            edge_mid_x.append((x0 + x1) / 2)
+            edge_mid_y.append((y0 + y1) / 2)
+            edge_mid_z.append((z0 + z1) / 2)
+            edge_hover_texts.append(f"{u_name} &#8596; {v_name}<br>{coupling_text}")
+            
     edge_trace = go.Scatter3d(
         x=edge_x, y=edge_y, z=edge_z,
         mode='lines',
@@ -239,7 +286,16 @@ def plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_path, layout_
         name='Call Graph Edges'
     )
     
-    fig = go.Figure(data=[edge_trace, node_trace])
+    edge_mid_trace = go.Scatter3d(
+        x=edge_mid_x, y=edge_mid_y, z=edge_mid_z,
+        mode='markers',
+        marker=dict(size=3, color='rgba(200, 200, 200, 0.5)'),
+        text=edge_hover_texts,
+        hoverinfo='text',
+        name='Edge Coupling'
+    )
+    
+    fig = go.Figure(data=[edge_trace, edge_mid_trace, node_trace])
     
     fig.update_layout(
         title="3D Call Graph Energy Landscape",

@@ -138,7 +138,9 @@ class NormalizedBoykovJollyCut(BoykovJollyCut):
                 if self.original_graph.has_edge(v, u)
                 else 0.0
             )
-            base[edge_set] = math.log1p(freq_uv + freq_vu)
+            
+            # Normalize coupling by the square root of the product of the degrees of the nodes
+            base[edge_set] = math.log1p(freq_uv + freq_vu) / math.sqrt(self.original_graph.degree[u] * self.original_graph.degree[v])
 
         if not base:
             self.C_ij = {}

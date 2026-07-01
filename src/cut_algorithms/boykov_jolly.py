@@ -11,7 +11,8 @@ class BoykovJollyCut:
     """
     
     def __init__(self, G: nx.DiGraph, sbfl_scores: Dict[str, float], lambd: float, 
-                 enable_directional: bool = False, downstream_penalty: float = 0.1, upstream_penalty: float = 1.0):
+                 enable_directional: bool = False, downstream_penalty: float = 0.0, upstream_penalty: float = 1.0,
+                 pairwise_variant: str = "degree_normalized"):
         """
         Initializes the Boykov-Jolly cut algorithm.
         
@@ -22,6 +23,7 @@ class BoykovJollyCut:
             enable_directional: If True, uses asymmetric edge capacities for failure propagation.
             downstream_penalty: Multiplier when cutting Caller -> Callee (Caller is Buggy, Callee is Normal).
             upstream_penalty: Multiplier when cutting Callee -> Caller (Callee is Buggy, Caller is Normal).
+            pairwise_variant: Which pairwise potential formulation to use ("none", "binary", "raw_count", "log_count", "degree_normalized").
         """
         self.original_graph = G
         self.sbfl_scores = sbfl_scores
@@ -29,6 +31,7 @@ class BoykovJollyCut:
         self.enable_directional = enable_directional
         self.downstream_penalty = downstream_penalty
         self.upstream_penalty = upstream_penalty
+        self.pairwise_variant = pairwise_variant
         
         # Internal state
         self.D0: Dict[str, float] = {}
@@ -72,31 +75,51 @@ class BoykovJollyCut:
             seen_edges.add(edge_set)
             
 
-            freq_uv = self.original_graph[u][v]['weight']
-            freq_vu = self.original_graph[v][u]['weight'] if self.original_graph.has_edge(v,u) else 0
+            freq_uv = self.original_graph[u][v]['weight'] if self.original_graph.has_edge(u, v) else 0
+            freq_vu = self.original_graph[v][u]['weight'] if self.original_graph.has_edge(v, u) else 0
             
-            # log(1 + freq) formulation
-            base_coupling = math.log1p(freq_uv + freq_vu) / math.sqrt(self.original_graph.degree[u] * self.original_graph.degree[v])
+            deg_product = self.original_graph.degree[u] * self.original_graph.degree[v]
+            
+            def get_base_coupling(freq):
+                if self.pairwise_variant == "none":
+                    return 0.0
+                elif self.pairwise_variant == "binary":
+                    return 1.0 if freq > 0 else 0.0
+                elif self.pairwise_variant == "raw_count":
+                    return float(freq)
+                elif self.pairwise_variant == "log_count":
+                    return math.log1p(freq)
+                elif self.pairwise_variant == "degree_normalized":
+                    return math.log1p(freq) / math.sqrt(deg_product) if deg_product > 0 else 0.0
+                else:
+                    raise ValueError(f"Unknown pairwise variant: {self.pairwise_variant}")
             
             if self.enable_directional:
-                # Downstream: Caller is Buggy, Callee is Normal
-                self.C_uv[(u, v)] = base_coupling * self.downstream_penalty
-                # Upstream: Callee is Buggy, Caller is Normal
-                self.C_uv[(v, u)] = base_coupling * self.upstream_penalty
-            else:
-                self.C_ij[edge_set] = base_coupling
-            
-        #     if base_coupling > max_coupling:
-        #         max_coupling = base_coupling
+                coupling_uv = get_base_coupling(freq_uv)
+                coupling_vu = get_base_coupling(freq_vu)
                 
-        # # Normalize to [0, 1]
-        # if max_coupling > 0:
-        #     if self.enable_directional:
-        #         for uv in self.C_uv:
-        #             self.C_uv[uv] /= max_coupling
-        #     else:
-        #         for edge_set in self.C_ij:
-        #             self.C_ij[edge_set] /= max_coupling
+                # Capacity of cut u -> v (u is Buggy, v is Normal)
+                # - from the u->v call, this is a downstream cut (d * coupling_uv)
+                # - from the v->u call, this is an upstream cut (r * coupling_vu)
+                c_uv_total = (coupling_uv * self.downstream_penalty) + (coupling_vu * self.upstream_penalty)
+                
+                # Capacity of cut v -> u (v is Buggy, u is Normal)
+                # - from the u->v call, this is an upstream cut (r * coupling_uv)
+                # - from the v->u call, this is a downstream cut (d * coupling_vu)
+                c_vu_total = (coupling_uv * self.upstream_penalty) + (coupling_vu * self.downstream_penalty)
+                
+                if c_uv_total > 0:
+                    self.C_uv[(u, v)] = c_uv_total
+                if c_vu_total > 0:
+                    self.C_uv[(v, u)] = c_vu_total
+            else:
+                c_ij = freq_uv + freq_vu
+                if c_ij > 0:
+                    base_coupling = get_base_coupling(c_ij)
+                    if self.pairwise_variant == "binary":
+                        base_coupling = 1.0
+                    if base_coupling > 0:
+                        self.C_ij[edge_set] = base_coupling
 
     def build_st_graph(self, constrained_node: Optional[str], constrained_label: Optional[int]) -> nx.DiGraph:
         """
