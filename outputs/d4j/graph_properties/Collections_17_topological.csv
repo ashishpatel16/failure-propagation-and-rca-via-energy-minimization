@@ -1,7 +1,0 @@
-Method,In_Degree,Out_Degree,In_Degree_Centrality,Out_Degree_Centrality,Betweenness_Centrality,Closeness_Centrality,PageRank,Clustering_Coefficient
-org.apache.commons.collections.functors.EqualPredicate#equalPredicate(java.lang.Object),0,2,0.0,0.4,0.0,0.0,0.11221769699688855,0
-org.apache.commons.collections.functors.EqualPredicate#EqualPredicate(java.lang.Object),1,1,0.2,0.2,0.05,0.2,0.1599102742634799,0
-org.apache.commons.collections.functors.EqualPredicate#evaluate(java.lang.Object),0,1,0.0,0.2,0.0,0.0,0.11221769699688855,0
-"org.apache.commons.collections.functors.DefaultEquator#equate(java.lang.Object,java.lang.Object)",1,0,0.2,0.0,0.0,0.2,0.20760285153007127,0
-org.apache.commons.collections.functors.NullPredicate#nullPredicate(),1,0,0.2,0.0,0.0,0.2,0.1599102742634799,0
-"org.apache.commons.collections.functors.EqualPredicate#EqualPredicate(java.lang.Object,org.apache.commons.collections.functors.Equator)",1,0,0.2,0.0,0.0,0.26666666666666666,0.24814120594919156,0
