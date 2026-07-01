@@ -29,20 +29,23 @@ class D4JManager:
         return result.stdout
 
     def checkout(self, project: str, bug_id: str, output_dir: str) -> None:
+        """Executes: defects4j checkout -p <project> -v <bug_id>b -w <output_dir>"""
         self.run_command(["checkout", "-p", project, "-v", f"{bug_id}b", "-w", output_dir], cwd=".")
 
     def compile(self, project_dir: str) -> None:
+        """Executes: defects4j compile"""
         self.run_command(["compile"], cwd=project_dir)
 
     def test(self, project_dir: str) -> str:
+        """Executes: defects4j test"""
         return self.run_command(["test"], cwd=project_dir)
 
     def cobertura_coverage(self, project_dir: str) -> str:
-        """Run standard Cobertura coverage analysis via Defects4J."""
+        """Executes: defects4j coverage (Run standard Cobertura coverage analysis)"""
         return self.run_command(["coverage"], cwd=project_dir)
 
     def run_test_with_agent(self, project_dir: str, agent_jar_path: str, agent_args: str) -> str:
-        """Run project tests with a Java agent attached."""
+        """Executes: java -javaagent:<agent_jar>=<agent_args> -cp <cp> org.junit.runner.JUnitCore <test_class>"""
         props = self.get_properties(project_dir)
         cp = props["cp.test"]
         
@@ -74,11 +77,27 @@ class D4JManager:
         return "\n".join(results)
 
     def get_properties(self, project_dir: str) -> dict[str, str]:
+        """Executes: defects4j export -p <property> (for various properties)"""
         properties = {}
         # Exporting common properties
         for prop in ["dir.src.classes", "dir.src.tests", "dir.bin.classes", "dir.bin.tests", "cp.compile", "cp.test"]:
             val = self.run_command(["export", "-p", prop], cwd=project_dir).strip()
             properties[prop] = val
+            
+        # Workaround for projects (like Jsoup) that include older JUnit jars in their lib/ dir.
+        # Ensure the D4J-provided JUnit (usually 4.11/4.12) takes precedence.
+        if "cp.test" in properties:
+            cp_elements = properties["cp.test"].split(":")
+            d4j_junit = None
+            for el in cp_elements:
+                if "framework/projects/lib/junit" in el:
+                    d4j_junit = el
+                    break
+            if d4j_junit:
+                cp_elements.remove(d4j_junit)
+                cp_elements.insert(0, d4j_junit)
+                properties["cp.test"] = ":".join(cp_elements)
+                
         return properties
 
     def get_buggy_methods(self, project: str, bug_id: str, project_dir: str) -> list[str]:
@@ -194,6 +213,6 @@ class D4JManager:
         return f"{package_name}.{class_name}#{method_name}"
 
     def get_bug_ids(self, project: str) -> list[str]:
-        """Get all bug IDs for a given project."""
+        """Executes: defects4j query -p <project> -q bug.id"""
         output = self.run_command(["query", "-p", project, "-q", "bug.id"], cwd=".")
         return [line.strip() for line in output.splitlines() if line.strip()]

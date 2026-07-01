@@ -15,6 +15,18 @@ from graph_generation.sbfl.extractor import SBFLGraphExtractor
 from visualization.graph_plots import plot_json_graph
 from cut_algorithms.boykov_jolly import BoykovJollyCut
 from cut_algorithms.data_parsers import read_call_graph
+from visualization.energy_plots import plot_3d_energy_landscape
+
+
+TARGETS: list[tuple[str, str, str]] = [
+    # ("Lang", "6", "org.apache.commons"),
+    ("Lang", "1", "org.apache.commons"),
+    ("Lang", "3", "org.apache.commons"),
+    ("Lang", "5", "org.apache.commons"),
+    ("Lang", "7", "org.apache.commons"),
+    ("Lang", "8", "org.apache.commons"),
+    ("Lang", "10", "org.apache.commons"),
+]
 
 
 def get_best_rank(df: pd.DataFrame, score_col: str) -> int:
@@ -41,20 +53,23 @@ def main() -> None:
         java_home=JAVA_HOME
     )
     
-    targets = [
-        ("Lang", "6", "org.apache.commons"), 
-    ]
-    
     results = []
     
-    for project, bug_id, package_prefix in targets:
+    for project, bug_id, package_prefix in TARGETS:
         output_dir = ROOT_DIR / "data" / "defects4j" / f"{project}_{bug_id}"
         
         extraction_res = extractor.extract(project, bug_id, str(output_dir), package_prefix)
         
+        buggy_nodes_path = output_dir / "buggy_nodes.txt"
+        with open(buggy_nodes_path, "w") as f:
+            for method in extraction_res.buggy_methods:
+                f.write(f"{method}\n")
+        logging.info(f"Saved buggy nodes to {buggy_nodes_path}")
+        
         plot_title = f"{project}-{bug_id} Call Graph"
-        logging.info(f"Visualizing {plot_title}...")
-        plot_json_graph(extraction_res.graph_json, plot_title, None)
+        plot_prefix = str(output_dir / "call_graph_plot")
+        logging.info(f"Visualizing and saving {plot_title} to {plot_prefix}.png/svg...")
+        plot_json_graph(extraction_res.graph_json, plot_title, plot_prefix, buggy_methods=extraction_res.buggy_methods)
             
         sbfl_df = pd.DataFrame(extraction_res.sbfl_metrics)
         
@@ -63,6 +78,11 @@ def main() -> None:
         G = read_call_graph(extraction_res.graph_json)
         logging.info(f"Computing Graph Cuts rankings for {project}-{bug_id}...")
         cut_algo = BoykovJollyCut(G, tarantula_scores, 1.0)
+        
+        logging.info(f"Generating 3D Energy Landscape for {project}-{bug_id}...")
+        _, optimal_labeling = cut_algo.compute_min_cut()
+        plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_dir / "3d_energy_landscape.html", layout_type="hierarchical", buggy_methods=extraction_res.buggy_methods)
+        plot_3d_energy_landscape(G, cut_algo, optimal_labeling, output_dir / "3d_energy_landscape_kamada.html", layout_type="kamada_kawai", buggy_methods=extraction_res.buggy_methods)
         
         cut_scores = []
         for node in cut_algo.nodes:
@@ -95,10 +115,10 @@ def main() -> None:
             "Best_GraphCut": best_graphcut
         })
         
-        work_dir = output_dir / "workspace"
-        if work_dir.exists():
-            logging.info(f"Cleaning up workspace: {work_dir}")
-            shutil.rmtree(work_dir)
+        # work_dir = output_dir / "workspace"
+        # if work_dir.exists():
+        #     logging.info(f"Cleaning up workspace: {work_dir}")
+        #     shutil.rmtree(work_dir)
             
         gzoltar_out_dir = output_dir / "gzoltar-out"
         if gzoltar_out_dir.exists():

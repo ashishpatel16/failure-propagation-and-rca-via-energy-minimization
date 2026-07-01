@@ -1,0 +1,8 @@
+Method,In_Degree,Out_Degree,In_Degree_Centrality,Out_Degree_Centrality,Betweenness_Centrality,Closeness_Centrality,PageRank,Clustering_Coefficient
+"org.apache.commons.collections.keyvalue.MultiKey#MultiKey(java.lang.Object,java.lang.Object)",0,1,0.0,0.16666666666666666,0.0,0.0,0.06364351605641651,0
+"org.apache.commons.collections.keyvalue.MultiKey#MultiKey(java.lang.Object[],boolean)",5,1,0.8333333333333333,0.16666666666666666,0.16666666666666666,0.8333333333333334,0.3341276879460753,0
+"org.apache.commons.collections.keyvalue.MultiKey#MultiKey(java.lang.Object,java.lang.Object,java.lang.Object)",0,1,0.0,0.16666666666666666,0.0,0.0,0.06364351605641651,0
+"org.apache.commons.collections.keyvalue.MultiKey#MultiKey(java.lang.Object,java.lang.Object,java.lang.Object,java.lang.Object,java.lang.Object)",0,1,0.0,0.16666666666666666,0.0,0.0,0.06364351605641651,0
+"org.apache.commons.collections.keyvalue.MultiKey#MultiKey(java.lang.Object,java.lang.Object,java.lang.Object,java.lang.Object)",0,1,0.0,0.16666666666666666,0.0,0.0,0.06364351605641651,0
+org.apache.commons.collections.keyvalue.MultiKey#calculateHashCode(java.lang.Object[]),1,0,0.16666666666666666,0.0,0.0,0.5454545454545454,0.34765473177184164,0
+org.apache.commons.collections.keyvalue.MultiKey#MultiKey(java.lang.Object[]),0,1,0.0,0.16666666666666666,0.0,0.0,0.06364351605641651,0

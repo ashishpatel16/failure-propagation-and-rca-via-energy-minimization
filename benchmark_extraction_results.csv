@@ -1,0 +1,3 @@
+project,bug_id,status,checkout_compile_time_sec,list_tests_time_sec,collect_coverage_time_sec,export_csv_time_sec,call_graph_agent_time_sec,call_graph_parse_time_sec,total_pipeline_time_sec,total_tests,coverage_matrix_rows,coverage_matrix_cols,call_graph_nodes,call_graph_edges
+Jsoup,1,Success,10.133084999979474,0.2954325409955345,4.77688587497687,0.11275708297034726,6.509869458037429,0.0013293339870870113,27.08851120795589,139,137,1440,163,304
+Jsoup,2,Success,8.537642541981768,0.3336652080179192,6.881627959024627,0.15041499998187646,14.868692541960627,0.002001832996029407,37.551116582995746,140,138,1440,163,304

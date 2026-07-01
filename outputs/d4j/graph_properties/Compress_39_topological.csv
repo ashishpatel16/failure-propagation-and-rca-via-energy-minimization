@@ -1,0 +1,8 @@
+Method,In_Degree,Out_Degree,In_Degree_Centrality,Out_Degree_Centrality,Betweenness_Centrality,Closeness_Centrality,PageRank,Clustering_Coefficient
+"org.apache.commons.compress.utils.ArchiveUtils#isEqual(byte[],byte[])",0,1,0.0,0.16666666666666666,0.0,0.0,0.08352461558084545,0
+"org.apache.commons.compress.utils.ArchiveUtils#isEqual(byte[],int,int,byte[],int,int,boolean)",3,0,0.5,0.0,0.0,0.5333333333333333,0.35685962606930577,0
+org.apache.commons.compress.archivers.ArchiveStreamFactory#ArchiveStreamFactory(),0,1,0.0,0.16666666666666666,0.0,0.0,0.08352461558084545,0
+org.apache.commons.compress.archivers.ArchiveStreamFactory#ArchiveStreamFactory(java.lang.String),1,0,0.16666666666666666,0.0,0.0,0.16666666666666666,0.15452095580365605,0
+"org.apache.commons.compress.utils.ArchiveUtils#matchAsciiBuffer(java.lang.String,byte[])",0,1,0.0,0.16666666666666666,0.0,0.0,0.08352461558084545,0
+"org.apache.commons.compress.utils.ArchiveUtils#matchAsciiBuffer(java.lang.String,byte[],int,int)",1,1,0.16666666666666666,0.16666666666666666,0.03333333333333333,0.16666666666666666,0.15452095580365605,0
+"org.apache.commons.compress.utils.ArchiveUtils#isEqual(byte[],byte[],boolean)",0,1,0.0,0.16666666666666666,0.0,0.0,0.08352461558084545,0
