@@ -1,8 +1,0 @@
-Method,In_Degree,Out_Degree,In_Degree_Centrality,Out_Degree_Centrality,Betweenness_Centrality,Closeness_Centrality,PageRank,Clustering_Coefficient
-org.apache.commons.lang.LocaleUtils#isAvailableLocale(java.util.Locale),0,1,0.0,0.16666666666666666,0.0,0.0,0.08888868263097616,0
-org.apache.commons.lang.LocaleUtils#availableLocaleList(),4,0,0.6666666666666666,0.0,0.0,0.6666666666666666,0.3911120598975096,0
-org.apache.commons.lang.LocaleUtils#languagesByCountry(java.lang.String),0,1,0.0,0.16666666666666666,0.0,0.0,0.08888868263097616,0
-org.apache.commons.lang.LocaleUtils#localeLookupList(java.util.Locale),0,1,0.0,0.16666666666666666,0.0,0.0,0.08888868263097616,0
-"org.apache.commons.lang.LocaleUtils#localeLookupList(java.util.Locale,java.util.Locale)",1,0,0.16666666666666666,0.0,0.0,0.16666666666666666,0.1644445269476095,0
-org.apache.commons.lang.LocaleUtils#countriesByLanguage(java.lang.String),0,1,0.0,0.16666666666666666,0.0,0.0,0.08888868263097616,0
-org.apache.commons.lang.LocaleUtils#availableLocaleSet(),0,1,0.0,0.16666666666666666,0.0,0.0,0.08888868263097616,0
