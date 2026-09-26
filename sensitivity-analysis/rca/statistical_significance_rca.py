@@ -1,11 +1,3 @@
-"""Statistical significance testing for Microservice RCA (N = 253 instances).
-
-Evaluates:
-1. Telemetry Metric Dropout Variance Reduction (Paired t-test and Wilcoxon Signed-Rank).
-2. Time-Window Diagnostic Mean Rank Improvement (Paired t-test and Wilcoxon Signed-Rank).
-3. Suite-Specific breakdowns (RE2 vs RE3).
-"""
-
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -29,9 +21,6 @@ def run_rca_statistical_tests() -> pd.DataFrame:
 
     results: List[Dict[str, Any]] = []
 
-    # =========================================================================
-    # 1. Telemetry Metric Dropout Variance Tests (H1: Var(Base) > Var(GC))
-    # =========================================================================
     sub_drop = df_summary[df_summary["dimension_type"] == "metric_dropout"]
     for frac in [0.25, 0.50, 0.75]:
         frac_str = f"{int(frac * 100)}% Metrics"
@@ -73,9 +62,6 @@ def run_rca_statistical_tests() -> pd.DataFrame:
             }
         )
 
-    # =========================================================================
-    # 2. Time-Window Mean Rank Tests (H1: Rank(Base) > Rank(GC))
-    # =========================================================================
     sub_win = df_trials[df_trials["dimension_type"] == "time_window"]
     for win in [1, 2, 5, 10, 20]:
         win_str = f"T = {win}m Window"
@@ -126,11 +112,7 @@ def main() -> None:
     df_res = run_rca_statistical_tests()
     pd.set_option("display.width", 220)
     pd.set_option("display.max_columns", 15)
-    print("\n" + "=" * 115)
-    print("MICROSERVICE RCA STATISTICAL SIGNIFICANCE REPORT (N = 253 INSTANCES)")
-    print("=" * 115)
     print(df_res.to_string(index=False))
-    print("=" * 115 + "\n")
 
 
 if __name__ == "__main__":

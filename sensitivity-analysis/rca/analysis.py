@@ -1,29 +1,19 @@
-"""Statistical aggregator and comparative verdict generator for microservice RCA sensitivity."""
-
 from dataclasses import asdict
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
-import numpy as np
 import pandas as pd
 
 from rca_models import (
     RCASampleTrialResult,
     RCASensitivitySummaryRow,
     RCASensitivityVerdict,
-    VerdictType,
 )
 
 
 class RCASensitivityAnalyzer:
-    """Aggregates trial results and computes comparative metrics for RCA sensitivity."""
-
-    def __init__(self) -> None:
-        pass
-
     def trial_results_to_dataframe(
         self, trials: List[RCASampleTrialResult]
     ) -> pd.DataFrame:
-        """Converts a list of RCASampleTrialResult dataclasses into a pandas DataFrame."""
         if len(trials) == 0:
             raise ValueError("Cannot convert empty RCA trial list to DataFrame.")
         records: List[Dict[str, object]] = [asdict(t) for t in trials]
@@ -32,7 +22,6 @@ class RCASensitivityAnalyzer:
     def summary_rows_to_dataframe(
         self, summaries: List[RCASensitivitySummaryRow]
     ) -> pd.DataFrame:
-        """Converts a list of RCASensitivitySummaryRow dataclasses into a pandas DataFrame."""
         if len(summaries) == 0:
             raise ValueError("Cannot convert empty RCA summary list to DataFrame.")
         records: List[Dict[str, object]] = [asdict(s) for s in summaries]
@@ -41,7 +30,6 @@ class RCASensitivityAnalyzer:
     def verdicts_to_dataframe(
         self, verdicts: List[RCASensitivityVerdict]
     ) -> pd.DataFrame:
-        """Converts a list of RCASensitivityVerdict dataclasses into a pandas DataFrame."""
         if len(verdicts) == 0:
             raise ValueError("Cannot convert empty RCA verdict list to DataFrame.")
         records: List[Dict[str, object]] = [asdict(v) for v in verdicts]
@@ -50,7 +38,6 @@ class RCASensitivityAnalyzer:
     def compute_window_verdicts(
         self, trials_df: pd.DataFrame
     ) -> List[RCASensitivityVerdict]:
-        """Computes head-to-head performance comparisons across observation time windows."""
         win_df: pd.DataFrame = trials_df[trials_df["dimension_type"] == "time_window"].copy()
         if win_df.empty:
             return []
@@ -99,7 +86,6 @@ class RCASensitivityAnalyzer:
         return verdicts
 
     def build_window_aggregate_report(self, trials_df: pd.DataFrame) -> pd.DataFrame:
-        """Aggregates Top-1, Top-3, and MRR metrics across observation window budgets."""
         win_df: pd.DataFrame = trials_df[trials_df["dimension_type"] == "time_window"].copy()
         if win_df.empty:
             raise ValueError("No time-window trials found in dataset.")

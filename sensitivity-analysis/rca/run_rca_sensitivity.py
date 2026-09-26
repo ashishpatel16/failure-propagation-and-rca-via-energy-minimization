@@ -1,5 +1,3 @@
-"""Standalone runner script for Microservice RCA sensitivity and observation window analysis."""
-
 import logging
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -9,7 +7,6 @@ from typing import List, Tuple
 import pandas as pd
 from tqdm import tqdm
 
-# Add repo root and sensitivity-analysis folders to path
 MODULE_DIR: Path = Path(__file__).resolve().parent
 ROOT_DIR: Path = MODULE_DIR.parent.parent
 RCA_EVAL_DIR: Path = ROOT_DIR / "rca-eval"
@@ -34,9 +31,6 @@ from rca_models import (
     UnaryPriorStrategy,
 )
 
-# ==============================================================================
-# GLOBAL CONFIGURATION CONSTANTS (NO ARGPARSE)
-# ==============================================================================
 DATA_DIR: Path = ROOT_DIR / "notebooks" / "data"
 OUTPUT_DIR: Path = MODULE_DIR / "outputs"
 
@@ -53,7 +47,6 @@ TDELTA: int = 0
 RANDOM_SEED: int = 42
 MAX_WORKERS: int = 3
 
-# Specific instance filter: if empty, evaluates ALL available instances in RE2 and RE3
 SELECTED_INSTANCES: List[str] = []
 
 logging.basicConfig(
@@ -66,7 +59,6 @@ logger: logging.Logger = logging.getLogger("RCASensitivityRunner")
 def _run_instance_worker(
     instance: RCAInstanceMetadata, config: RCASensitivityConfig
 ) -> Tuple[List[RCASampleTrialResult], List[RCASensitivitySummaryRow]]:
-    """Worker function evaluating one RCA instance."""
     evaluator: RCASensitivityEvaluator = RCASensitivityEvaluator()
     return evaluator.evaluate_instance_sensitivity(instance=instance, config=config)
 
@@ -161,41 +153,27 @@ def main() -> None:
     if len(all_trials) == 0:
         raise ValueError("No successful RCA trials were recorded.")
 
-    # 1. Export Master Trials CSV
     df_trials: pd.DataFrame = analyzer.trial_results_to_dataframe(all_trials)
-    trials_csv_path: Path = OUTPUT_DIR / "rca_trials_master.csv"
-    df_trials.to_csv(trials_csv_path, index=False)
-    logger.info(f"Saved master trials dataset: {trials_csv_path} ({len(df_trials)} rows)")
+    df_trials.to_csv(OUTPUT_DIR / "rca_trials_master.csv", index=False)
+    logger.info(f"Saved master trials dataset: {OUTPUT_DIR / 'rca_trials_master.csv'} ({len(df_trials)} rows)")
 
-    # 2. Export Summary Statistics CSV
     df_summaries: pd.DataFrame = analyzer.summary_rows_to_dataframe(all_summaries)
-    summaries_csv_path: Path = OUTPUT_DIR / "rca_summary.csv"
-    df_summaries.to_csv(summaries_csv_path, index=False)
-    logger.info(f"Saved summary dataset: {summaries_csv_path} ({len(df_summaries)} rows)")
+    df_summaries.to_csv(OUTPUT_DIR / "rca_summary.csv", index=False)
+    logger.info(f"Saved summary dataset: {OUTPUT_DIR / 'rca_summary.csv'} ({len(df_summaries)} rows)")
 
-    # 3. Export Verdicts Comparison CSV
     verdicts: List[RCASensitivityVerdict] = analyzer.compute_window_verdicts(df_trials)
     if len(verdicts) > 0:
         df_verdicts: pd.DataFrame = analyzer.verdicts_to_dataframe(verdicts)
-        verdicts_csv_path: Path = OUTPUT_DIR / "rca_verdicts.csv"
-        df_verdicts.to_csv(verdicts_csv_path, index=False)
-        logger.info(f"Saved verdicts dataset: {verdicts_csv_path}")
+        df_verdicts.to_csv(OUTPUT_DIR / "rca_verdicts.csv", index=False)
+        logger.info(f"Saved verdicts dataset: {OUTPUT_DIR / 'rca_verdicts.csv'}")
 
-    # 4. Export Window Aggregate Report
     df_aggregate: pd.DataFrame = analyzer.build_window_aggregate_report(df_trials)
-    aggregate_csv_path: Path = OUTPUT_DIR / "rca_window_aggregate_report.csv"
-    df_aggregate.to_csv(aggregate_csv_path, index=False)
-    logger.info(f"Saved window aggregate report: {aggregate_csv_path}")
+    df_aggregate.to_csv(OUTPUT_DIR / "rca_window_aggregate_report.csv", index=False)
+    logger.info(f"Saved window aggregate report: {OUTPUT_DIR / 'rca_window_aggregate_report.csv'}")
 
-    # Display clean tabular results to terminal
     pd.set_option("display.width", 200)
     pd.set_option("display.max_columns", 15)
-
-    print("\n" + "=" * 95)
-    print("MICROSERVICE RCA TIME-WINDOW SENSITIVITY REPORT (BARO vs BARO-GC)")
-    print("=" * 95)
     print(df_aggregate.to_string(index=False))
-    print("=" * 95 + "\n")
 
 
 if __name__ == "__main__":

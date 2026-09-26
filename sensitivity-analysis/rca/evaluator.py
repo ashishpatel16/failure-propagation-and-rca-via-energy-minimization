@@ -1,5 +1,3 @@
-"""Evaluation engine for RCA sensitivity under time-window and metric data reduction."""
-
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -9,7 +7,6 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler
 
-# Add repo root and rca-eval to path
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent.parent
 RCA_EVAL_DIR: Path = ROOT_DIR / "rca-eval"
 
@@ -36,11 +33,6 @@ from sampler import prepare_truncated_baro_windows, subsample_telemetry_metrics
 
 
 class RCASensitivityEvaluator:
-    """Evaluates the stability and accuracy of microservice RCA under constrained telemetry budgets."""
-
-    def __init__(self) -> None:
-        pass
-
     def get_service_aliases(self, service_name: str) -> List[str]:
         """Returns canonical name and normalized aliases for a microservice identifier."""
         clean_name: str = str(service_name)
@@ -259,8 +251,6 @@ class RCASensitivityEvaluator:
     ) -> Tuple[List[RCASampleTrialResult], List[RCASensitivitySummaryRow]]:
         """Executes RCA sensitivity evaluation across observation windows and metric dropouts."""
         instance_name: str = f"{instance.suite.value}_{instance.dataset}_{instance.fault}_{instance.instance_id}"
-
-        # 1. Compute Full 20-minute Baseline Reference Rank (Ground Truth Anchor)
         full_window_data, full_inject_time = prepare_truncated_baro_windows(
             instance_dir=instance.instance_dir,
             window_minutes=20,
@@ -290,7 +280,6 @@ class RCASensitivityEvaluator:
             full_service_ranks, instance.root_cause, all_metric_services
         )
 
-        # 2. Build Call Graph & Latency Correlation Matrix
         traces_csv: Path = instance.instance_dir / "traces.csv"
         traces_df: pd.DataFrame = load_traces_dataframe(traces_csv)
         G_base: nx.DiGraph = build_call_graph(traces_df, all_metric_services)
@@ -302,9 +291,6 @@ class RCASensitivityEvaluator:
         trial_results: List[RCASampleTrialResult] = []
         summary_rows: List[RCASensitivitySummaryRow] = []
 
-        # ======================================================================
-        # DIMENSION 1: TIME WINDOW BUDGET REDUCTION (e.g. 2m, 5m, 10m, 20m)
-        # ======================================================================
         for window_min in config.window_minutes_list:
             win_data, win_inject = prepare_truncated_baro_windows(
                 instance_dir=instance.instance_dir,
@@ -318,7 +304,6 @@ class RCASensitivityEvaluator:
                 columns=["time"], errors="ignore"
             )
 
-            # Compute latency correlation STRICTLY on this window (zero lookahead)
             win_corr: pd.DataFrame = compute_latency_correlation_matrix(win_data)
             G_win: nx.DiGraph = annotate_graph_with_telemetry(G_base, win_corr)
 
@@ -332,7 +317,6 @@ class RCASensitivityEvaluator:
                 eps=config.eps,
             )
 
-            # Baseline BARO (λ = 0.0)
             baro_metric_ranks: List[str] = [
                 k
                 for k, _ in sorted(
@@ -417,10 +401,6 @@ class RCASensitivityEvaluator:
                     total_services=total_services,
                 )
                 trial_results.append(res_gc)
-
-        # ======================================================================
-        # DIMENSION 2: METRIC DROPOUT / SPARSITY (e.g. 25%, 50%, 75%, 100%)
-        # ======================================================================
         rng: np.random.Generator = np.random.default_rng(config.random_seed)
 
         for frac in config.metric_fractions:
@@ -451,7 +431,6 @@ class RCASensitivityEvaluator:
                     eps=config.eps,
                 )
 
-                # Baseline BARO
                 b_metrics: List[str] = [
                     k
                     for k, _ in sorted(

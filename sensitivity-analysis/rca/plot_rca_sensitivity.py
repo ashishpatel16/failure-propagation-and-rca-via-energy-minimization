@@ -49,7 +49,6 @@ class RCASensitivityPlotter:
                 lambd, ("#718096", "o-", f"BARO-GC (λ={lambd})")
             )
 
-            # Left: Top-1 Accuracy
             ax1.plot(
                 windows,
                 top1,
@@ -60,7 +59,6 @@ class RCASensitivityPlotter:
                 label=label,
             )
 
-            # Right: MRR
             ax2.plot(
                 windows,
                 mrr,
